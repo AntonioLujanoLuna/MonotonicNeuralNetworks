@@ -2,26 +2,34 @@ import torch
 import torch.nn as nn
 from typing import Callable, List, Literal
 
-def init_weights(module: nn.Module, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal']) -> None:
+def init_weights(module: nn.Module, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']) -> None:
     """
     Initialize weights of a module using the specified method.
 
     Args:
         module (nn.Module): The module whose weights to initialize.
-        method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal']): Initialization method.
+        method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']): Initialization method.
     """
     if method.startswith('xavier'):
-        gain = nn.init.calculate_gain('tanh')
         init_func = nn.init.xavier_uniform_ if method.endswith('uniform') else nn.init.xavier_normal_
-    elif method.startswith('kaiming'):
+    elif method.startswith('kaiming') or method.startswith('he'):
         init_func = nn.init.kaiming_uniform_ if method.endswith('uniform') else nn.init.kaiming_normal_
-        gain = 1.0  # Kaiming initialization already accounts for gain
+    elif method == 'truncated_normal':
+        def truncated_normal_(tensor, mean=1., std=1.):
+            with torch.no_grad():
+                tensor.normal_(mean, std)
+                while True:
+                    cond = (tensor < -2 * std) | (tensor > 2 * std)
+                    if not torch.sum(cond):
+                        break
+                    tensor[cond] = tensor[cond].normal_(mean, std)
+        init_func = truncated_normal_
     else:
         raise ValueError(f"Unsupported initialization method: {method}")
 
     for param in module.parameters():
         if len(param.shape) > 1:  # weights
-            init_func(param, gain=gain)
+            init_func(param)
         else:  # biases
             nn.init.zeros_(param)
 
@@ -500,26 +508,35 @@ class MinMaxNetworkBase(nn.Module):
         self._init_weights(self, method)
 
     @staticmethod
-    def _init_weights(module: nn.Module, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal']) -> None:
+    def _init_weights(module: nn.Module, method: Literal[
+        'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']) -> None:
         """
-        Static method to initialize weights of a module.
+        Initialize weights of a module using the specified method.
 
         Args:
             module (nn.Module): The module whose weights to initialize.
-            method (str): Weight initialization method.
+            method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']): Initialization method.
         """
         if method.startswith('xavier'):
-            gain = nn.init.calculate_gain('tanh')
             init_func = nn.init.xavier_uniform_ if method.endswith('uniform') else nn.init.xavier_normal_
-        elif method.startswith('kaiming'):
+        elif method.startswith('kaiming') or method.startswith('he'):
             init_func = nn.init.kaiming_uniform_ if method.endswith('uniform') else nn.init.kaiming_normal_
-            gain = 1.0
+        elif method == 'truncated_normal':
+            def truncated_normal_(tensor, mean=1., std=1.):
+                with torch.no_grad():
+                    tensor.normal_(mean, std)
+                    while True:
+                        cond = (tensor < -2 * std) | (tensor > 2 * std)
+                        if not torch.sum(cond):
+                            break
+                        tensor[cond] = tensor[cond].normal_(mean, std)
+            init_func = truncated_normal_
         else:
             raise ValueError(f"Unsupported initialization method: {method}")
 
         for param in module.parameters():
             if len(param.shape) > 1:  # weights
-                init_func(param, gain=gain)
+                init_func(param)
             else:  # biases
                 nn.init.zeros_(param)
 
