@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
-from typing import List, Tuple, Optional, Union, Callable
+from typing import List, Tuple, Optional, Union
 
 
 def generate_one_hot_mat(mat: np.ndarray) -> np.ndarray:
@@ -60,7 +60,6 @@ def load_data(
         class_list: List[int],
         target_column: str,
         train_test_split: float = 0.8,
-        get_categorical_info: bool = True,
         constant: float = 1.0,
         normalize_target: bool = False,
         preprocess_func: Optional[callable] = None,
@@ -100,10 +99,7 @@ def load_data(
         y = generate_normalize_numerical_mat(np.concatenate([y_train, y_test], axis=0))
         y_train, y_test = y[:len(y_train)], y[len(y_train):]
 
-    if get_categorical_info:
-        return X_train, y_train, X_test, y_test, start_index, cat_length
-    else:
-        return X_train, y_train, X_test, y_test
+    return X_train, y_train, X_test, y_test
 
 def preprocess_abalone(data: pd.DataFrame) -> pd.DataFrame:
     data = data.copy()
