@@ -122,6 +122,15 @@ class StandardMLP(nn.Module):
                 x = self.output_activation(x)
         return x
 
+    def count_parameters(self) -> int:
+        """
+        Count the number of trainable parameters in the network.
+
+        Returns:
+            int: The total number of trainable parameters.
+        """
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
     def check_grad(self) -> int:
         """
         Count the number of parameters with zero gradients.
@@ -155,12 +164,3 @@ class StandardMLP(nn.Module):
         weights_zero = torch.all(weights.grad == 0, dim=1).int()
         biases_zero = (biases.grad == 0).int()
         return torch.sum(weights_zero * biases_zero).item()
-
-    def count_parameters(self) -> int:
-        """
-        Count the number of trainable parameters in the network.
-
-        Returns:
-            int: The total number of trainable parameters.
-        """
-        return sum(p.numel() for p in self.parameters() if p.requires_grad)
