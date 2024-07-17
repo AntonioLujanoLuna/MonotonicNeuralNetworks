@@ -607,6 +607,15 @@ class MinMaxNetworkBase(nn.Module):
         biases_zero = (biases.grad == 0).int()
         return torch.sum(weights_zero * biases_zero).item()
 
+    def count_parameters(self) -> int:
+        """
+        Count the number of trainable parameters in the network.
+
+        Returns:
+            int: The total number of trainable parameters.
+        """
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)
+
 class MinMaxNetwork(MinMaxNetworkBase):
     """
     MinMaxNetwork implementation with mask for non-monotonic features.
@@ -749,6 +758,16 @@ class MinMaxNetworkWithMLP(MinMaxNetworkBase):
         """
         return super().check_grad() + sum(torch.sum((param.grad == 0).int()).item() for param in self.auxiliary_net.parameters() if param.grad is not None)
 
+    def count_parameters(self) -> int:
+        """
+        Count the number of trainable parameters in the network, including the auxiliary network.
+
+        Returns:
+            int: The total number of trainable parameters.
+        """
+        return super().count_parameters() + sum(p.numel() for p in self.auxiliary_net.parameters() if p.requires_grad)
+
+
 class SmoothMinMaxNetworkWithMLP(SmoothMinMaxNetwork, MinMaxNetworkWithMLP):
     """
     SmoothMinMaxNetwork with auxiliary MLP for partially monotone problems.
@@ -796,3 +815,13 @@ class SmoothMinMaxNetworkWithMLP(SmoothMinMaxNetwork, MinMaxNetworkWithMLP):
             int: Number of parameters with zero gradients.
         """
         return SmoothMinMaxNetwork.check_grad(self) + sum(torch.sum((param.grad == 0).int()).item() for param in self.auxiliary_net.parameters() if param.grad is not None)
+
+    def count_parameters(self) -> int:
+        """
+        Count the number of trainable parameters in the network, including the auxiliary network.
+
+        Returns:
+            int: The total number of trainable parameters.
+        """
+        return SmoothMinMaxNetwork.count_parameters(self) + sum(
+            p.numel() for p in self.auxiliary_net.parameters() if p.requires_grad)

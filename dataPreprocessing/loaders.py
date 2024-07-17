@@ -64,7 +64,7 @@ def load_data(
         normalize_target: bool = False,
         preprocess_func: Optional[callable] = None,
         seed: int = 42
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
 
     if isinstance(path, tuple):
         # Load pre-split train and test data
@@ -154,7 +154,7 @@ def preprocess_loan(data: pd.DataFrame) -> pd.DataFrame:
     data = data.dropna(subset=[data.columns[1], data.columns[2]])
     return data
 
-def load_abalone(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_abalone(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/abalone.csv",
         mono_inc_list=[6, 7, 8, 9],
@@ -166,7 +166,7 @@ def load_abalone(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np
         seed=seed
     )
 
-def load_auto_mpg(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_auto_mpg(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/auto-mpg.csv",
         mono_inc_list=[4, 5, 6],  # acceleration, model_Year, origin
@@ -178,7 +178,7 @@ def load_auto_mpg(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, n
         seed=seed
     )
 
-def load_blog_feedback(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_blog_feedback(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path=("../datasets/blogfeedback_train.csv", "../datasets/blogfeedback_test.csv"),
         mono_inc_list=list(range(50, 59)),  # col51 to col59
@@ -190,7 +190,7 @@ def load_blog_feedback(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarra
         seed=seed
     )
 
-def load_boston_housing(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_boston_housing(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/BostonHousing.csv",
         mono_inc_list=[5],  # RM
@@ -201,7 +201,7 @@ def load_boston_housing(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarr
         seed=seed
     )
 
-def load_compas(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_compas(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/compas_scores_two_years.csv",
         mono_inc_list=[0, 1, 2, 3],  # prior_count, juv_fel_count, juv_misd_count, juv_other_count
@@ -213,7 +213,7 @@ def load_compas(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.
         seed=seed
     )
 
-def load_era(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_era(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/era.csv",
         mono_inc_list=[0, 1, 2, 3],  # in1, in2, in3, in4
@@ -224,7 +224,7 @@ def load_era(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
         seed=seed
     )
 
-def load_esl(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_esl(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/esl.csv",
         mono_inc_list=[0, 1, 2, 3],  # in1, in2, in3, in4
@@ -235,7 +235,7 @@ def load_esl(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
         seed=seed
     )
 
-def load_heart(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_heart(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/heart.csv",
         mono_inc_list=[3, 4],  # trestbps, chol
@@ -246,7 +246,7 @@ def load_heart(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
         seed=seed
     )
 
-def load_lev(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_lev(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/lev.csv",
         mono_inc_list=[0, 1, 2, 3],  # In1, In2, In3, In4
@@ -257,7 +257,7 @@ def load_lev(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
         seed=seed
     )
 
-def load_loan(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_loan(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/loan.csv",
         mono_inc_list=[1, 4],  # feature_1, feature_4
@@ -269,7 +269,7 @@ def load_loan(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
         seed=seed
     )
 
-def load_swd(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Optional[List[int]], Optional[List[int]]]:
+def load_swd(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/swd.csv",
         mono_inc_list=[0, 1, 2, 4, 6, 8, 9],  # In1, In2, In3, In5, In7, In9, In10
@@ -286,8 +286,6 @@ def save_preprocessed_data(
         y_train: np.ndarray,
         X_test: np.ndarray,
         y_test: np.ndarray,
-        start_index: Optional[List[int]],
-        cat_length: Optional[List[int]],
         save_split: bool = True
 ):
     # Create directory if it doesn't exist
@@ -332,8 +330,8 @@ def save_all_preprocessed_datasets():
 
     for dataset_name, load_func in datasets:
         print(f"Processing {dataset_name}...")
-        X_train, y_train, X_test, y_test, start_index, cat_length = load_func()
-        save_preprocessed_data(dataset_name, X_train, y_train, X_test, y_test, start_index, cat_length, False)
+        X_train, y_train, X_test, y_test = load_func()
+        save_preprocessed_data(dataset_name, X_train, y_train, X_test, y_test, False)
         print(f"{dataset_name} processed and saved.")
 
 
