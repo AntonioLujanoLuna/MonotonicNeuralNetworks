@@ -44,7 +44,7 @@ class PWLNetwork(nn.Module):
 
     def compute_monotonic_loss(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute the monotonicity enforcing loss.
+        Compute the monotonicity enforcing loss (PWL).
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, input_size).
@@ -52,20 +52,14 @@ class PWLNetwork(nn.Module):
         Returns:
             torch.Tensor: Monotonicity loss.
         """
-        x.requires_grad_(True)
+        monotonic_inputs = x[:, self.monotonic_indices]
+        monotonic_inputs.requires_grad_(True)
         output = self.forward(x)
-
-        loss = torch.tensor(0.0, device=x.device)
-
-        gradients = autograd.grad(outputs=output, inputs=x,
-                                  grad_outputs=torch.ones_like(output),
-                                  create_graph=True, retain_graph=True)[0]
-
-        for idx in self.monotonic_indices:
-            feature_gradients = gradients[:, idx]
-            loss += torch.sum(torch.relu(-feature_gradients))
-
-        return self.monotonicity_weight * loss
+        monotonic_gradients = autograd.grad(outputs=output, inputs=monotonic_inputs,
+                                            grad_outputs=torch.ones_like(output),
+                                            create_graph=True, retain_graph=True)[0]
+        pwl = torch.sum(torch.max(torch.zeros_like(monotonic_gradients), -monotonic_gradients))
+        return pwl
 
     def compute_loss(self, x: torch.Tensor, y: torch.Tensor, loss_fn: nn.Module) -> torch.Tensor:
         """
@@ -82,8 +76,7 @@ class PWLNetwork(nn.Module):
         y_pred = self.forward(x)
         empirical_loss = loss_fn(y_pred, y)
         monotonic_loss = self.compute_monotonic_loss(x)
-        return empirical_loss + monotonic_loss
-
+        return empirical_loss + self.monotonicity_weight * monotonic_loss
 
 def train_pwl_network(model: PWLNetwork, train_loader: DataLoader,
                       optimizer: torch.optim.Optimizer, loss_fn: nn.Module, num_epochs: int):

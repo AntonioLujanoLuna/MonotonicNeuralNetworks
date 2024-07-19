@@ -146,7 +146,7 @@ class PartialMonotonicNetwork(nn.Module):
 
     def compute_monotonic_loss(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute the monotonicity enforcing loss.
+        Compute the monotonicity enforcing loss (PWL).
 
         Args:
             x (torch.Tensor): Input tensor of shape (batch_size, input_size).
@@ -154,20 +154,14 @@ class PartialMonotonicNetwork(nn.Module):
         Returns:
             torch.Tensor: Monotonicity loss.
         """
-        x.requires_grad_(True)
+        monotonic_inputs = x[:, self.monotonic_indices]
+        monotonic_inputs.requires_grad_(True)
         output = self.forward(x)
-
-        loss = torch.tensor(0.0, device=x.device)
-
-        gradients = autograd.grad(outputs=output, inputs=x,
-                                  grad_outputs=torch.ones_like(output),
-                                  create_graph=True, retain_graph=True)[0]
-
-        for idx in self.monotonic_indices:
-            feature_gradients = gradients[:, idx]
-            loss += torch.sum(torch.relu(-feature_gradients))
-
-        return loss
+        monotonic_gradients = autograd.grad(outputs=output, inputs=monotonic_inputs,
+                                            grad_outputs=torch.ones_like(output),
+                                            create_graph=True, retain_graph=True)[0]
+        pwl = torch.sum(torch.max(torch.zeros_like(monotonic_gradients), -monotonic_gradients))
+        return pwl
 
     def compute_loss(self, x: torch.Tensor, y: torch.Tensor, loss_fn: nn.Module) -> torch.Tensor:
         """
@@ -192,9 +186,11 @@ class PartialMonotonicNetwork(nn.Module):
             m_mono = sum(self.mono_loss_history) / len(self.mono_loss_history)
             m_nn = sum(self.nn_loss_history) / len(self.nn_loss_history)
             r = m_nn / m_mono if m_mono != 0 else 1.0
-            self.s.data = torch.tensor(10 ** int(torch.log10(torch.tensor(r))))
+            s = 10 ** int(torch.log10(torch.tensor(r)))
+        else:
+            s = 1.0
 
-        total_loss = (1 - self.p) * nn_loss + self.p * self.s * mono_loss
+        total_loss = (1 - self.p) * nn_loss + self.p * s * mono_loss
         return total_loss
 
     def count_parameters(self) -> int:
