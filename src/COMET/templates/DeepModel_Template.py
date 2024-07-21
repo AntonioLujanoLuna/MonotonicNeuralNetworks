@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-
+"""
 import os
 import sys
 import numpy as np
@@ -67,3 +67,4 @@ def getMinMaxRangeOfFeatures(dataset, column_names):
         index = column_names.index(i)
         min_max[i] = [min(dataset[column_names[index]]),max(dataset[column_names[index]])]
     return min_max
+"""
