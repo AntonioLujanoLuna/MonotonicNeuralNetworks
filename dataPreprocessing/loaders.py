@@ -27,7 +27,7 @@ def normalize_data(data_train: np.ndarray, data_test: np.ndarray, mono_list: Lis
 
     # Process all features
     for i in range(data_feature.shape[1]):
-        if i in mono_list or i in class_list:
+        if i in class_list:
             # Don't normalize monotonic or categorical features
             mat = data_feature[:, i][:, np.newaxis]
         else:
@@ -113,7 +113,16 @@ def preprocess_auto_mpg(data: pd.DataFrame) -> pd.DataFrame:
 def preprocess_blog_feedback(data: pd.DataFrame) -> pd.DataFrame:
     data_array = np.array(data.values)
     X_array = data_array[:, :280].astype(np.float64)
-    y_array = data_array[:, 280].astype(np.uint8)
+    y_array = data_array[:, 280].astype(np.float64)
+    # Calculate the 90th percentile of the target variable
+    q = np.percentile(y_array, 90)
+    # Create a mask for rows to keep (where y <= q)
+    mask = y_array <= q
+    # Apply the mask to both X and y
+    X_array = X_array[mask]
+    y_array = y_array[mask]
+    # Convert y back to uint8 if needed
+    y_array = y_array.astype(np.uint8)
     data_array = np.column_stack((X_array, y_array))
     columns = [f'col_{i}' for i in range(1, data_array.shape[1])]
     columns.append('target')
@@ -159,7 +168,7 @@ def load_abalone(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np
         path="../datasets/abalone.csv",
         mono_inc_list=[6, 7, 8, 9],
         mono_dec_list=[],
-        class_list=[0],
+        class_list=[],
         target_column="Rings",
         normalize_target=True,
         preprocess_func=preprocess_abalone,
@@ -206,7 +215,7 @@ def load_compas(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.
         path="../datasets/compas_scores_two_years.csv",
         mono_inc_list=[0, 1, 2, 3],  # prior_count, juv_fel_count, juv_misd_count, juv_other_count
         mono_dec_list=[],
-        class_list=[5, 6],  # race and sex are categorical
+        class_list=[],
         target_column="two_year_recid",
         normalize_target=False,
         preprocess_func=preprocess_compas,
@@ -240,7 +249,7 @@ def load_heart(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
         path="../datasets/heart.csv",
         mono_inc_list=[3, 4],  # trestbps, chol
         mono_dec_list=[],
-        class_list=[1, 2, 5, 6, 7, 8, 9, 10, 11, 12],  # categorical features
+        class_list=[],
         target_column="target",
         normalize_target=False,
         seed=seed

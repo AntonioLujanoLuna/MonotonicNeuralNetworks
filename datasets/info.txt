@@ -1,0 +1,11 @@
+abalone.csv: Regression.
+auto-mpg.csv: Regression.
+blog-feedback.csv: Regression.
+BostonHousing.csv: Regression.
+compas_scores_two_years.csv: binary classification
+heart.csv: binary classification.
+esl.csv: Regression.
+era.csv: Regression.
+lev.csv: Regression.
+loan.csv: binary classification.
+swd.csv: Regression.

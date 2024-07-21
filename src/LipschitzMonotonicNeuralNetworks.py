@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 import monotonicnetworks as lmn
-from typing import List, Optional, Union
+from typing import List, Optional
 
 
-class LMNNNetwork(nn.Module):
+class LMNNetwork(nn.Module):
     """
     Lipschitz Monotonic Neural Network (LMNN) implementation.
 
@@ -43,7 +43,7 @@ class LMNNNetwork(nn.Module):
             lipschitz_constant (float): Lipschitz constant for the network (default is 1.0).
             sigma (float): Sigma value for the SigmaNet wrapper (default is 1.0).
         """
-        super(LMNNNetwork, self).__init__()
+        super(LMNNetwork, self).__init__()
         self.input_size = input_size
         self.hidden_sizes = hidden_sizes
         self.output_size = output_size
@@ -52,7 +52,11 @@ class LMNNNetwork(nn.Module):
         self.sigma = sigma
 
         self.model = self._build_model()
-        self.wrapped_model = lmn.SigmaNet(self.model, sigma=self.sigma, monotone_constraints=self.monotone_constraints)
+        self.wrapped_model = lmn.MonotonicWrapper(
+            self.model,
+            lipschitz_const=self.lipschitz_constant,
+            monotonic_constraints=self.monotone_constraints
+        )
 
     def _build_model(self) -> nn.Sequential:
         """
