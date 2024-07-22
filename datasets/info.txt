@@ -6,6 +6,6 @@ compas_scores_two_years.csv: binary classification
 heart.csv: binary classification.
 esl.csv: Regression.
 era.csv: Regression.
-lev.csv: Regression.
+lev.csv: regression.
 loan.csv: binary classification.
-swd.csv: Regression.
+swd.csv: regression.

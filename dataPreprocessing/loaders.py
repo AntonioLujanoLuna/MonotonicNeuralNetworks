@@ -108,6 +108,7 @@ def preprocess_abalone(data: pd.DataFrame) -> pd.DataFrame:
 
 def preprocess_auto_mpg(data: pd.DataFrame) -> pd.DataFrame:
     data = data.drop('car name', axis=1)
+    data = data.dropna()
     return data
 
 def preprocess_blog_feedback(data: pd.DataFrame) -> pd.DataFrame:
@@ -272,7 +273,7 @@ def load_loan(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
         mono_inc_list=[1, 4],  # feature_1, feature_4
         mono_dec_list=[0, 2, 3],  # feature_0, feature_2, feature_3
         class_list=[],
-        target_column="grade",
+        target_column="loan_status",
         preprocess_func=preprocess_loan,
         normalize_target=False,
         seed=seed
