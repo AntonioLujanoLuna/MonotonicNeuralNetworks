@@ -584,3 +584,69 @@ RMSE: 0.1591 (±0.0082)
 Best configuration: {'lr': 0.005865759101862595, 'hidden_sizes': [64, 64], 'batch_size': 32, 'epochs': 100}
 
 Processing dataset: load_loan
+[I 2024-07-23 13:47:12,047] A new study created in memory with name: no-name-d222dcb3-4955-4174-92c4-c8ea1ff63d2c
+  0%|          | 0/30 [00:00<?, ?it/s]Early stopping at epoch 14
+Best trial: 10. Best value: 0.3414:   3%|▎         | 1/30 [28:08<13:36:19, 1688.96s/it][I 2024-07-23 14:15:21,005] Trial 10 finished with value: 0.34140000000000004 and parameters: {'lr': 0.019686255615425648, 'hidden_sizes': '[64, 64]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 13
+Best trial: 10. Best value: 0.3414:   7%|▋         | 2/30 [29:35<5:48:11, 746.14s/it]  [I 2024-07-23 14:16:47,162] Trial 9 finished with value: 0.3428 and parameters: {'lr': 0.012122551943412736, 'hidden_sizes': '[32, 32]', 'batch_size': 64}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 13
+Best trial: 10. Best value: 0.3414:  10%|█         | 3/30 [29:41<3:03:49, 408.50s/it][I 2024-07-23 14:16:53,885] Trial 11 finished with value: 0.3436 and parameters: {'lr': 0.0007970979330444387, 'hidden_sizes': '[8, 8]', 'batch_size': 64}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 18
+Best trial: 10. Best value: 0.3414:  13%|█▎        | 4/30 [35:55<2:51:07, 394.92s/it][I 2024-07-23 14:23:07,975] Trial 17 finished with value: 0.34509999999999996 and parameters: {'lr': 0.00031412780384762983, 'hidden_sizes': '[32, 64]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 19
+Best trial: 10. Best value: 0.3414:  17%|█▋        | 5/30 [37:43<2:01:20, 291.23s/it][I 2024-07-23 14:24:55,355] Trial 16 finished with value: 0.3436 and parameters: {'lr': 0.00036263571451131555, 'hidden_sizes': '[32, 64]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 20
+Best trial: 10. Best value: 0.3414:  20%|██        | 6/30 [39:28<1:31:11, 227.96s/it][I 2024-07-23 14:26:40,503] Trial 8 finished with value: 0.3438 and parameters: {'lr': 0.01883751231472997, 'hidden_sizes': '[64, 64]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 18
+Best trial: 10. Best value: 0.3414:  23%|██▎       | 7/30 [40:47<1:08:44, 179.34s/it][I 2024-07-23 14:27:59,751] Trial 18 finished with value: 0.34219999999999995 and parameters: {'lr': 0.008308612219424694, 'hidden_sizes': '[16, 8]', 'batch_size': 64}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 19
+Best trial: 10. Best value: 0.3414:  27%|██▋       | 8/30 [42:49<58:59, 160.87s/it]  [I 2024-07-23 14:30:01,075] Trial 12 finished with value: 0.3498 and parameters: {'lr': 0.00010383224547820977, 'hidden_sizes': '[16, 32]', 'batch_size': 64}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 19
+Best trial: 10. Best value: 0.3414:  30%|███       | 9/30 [42:51<38:58, 111.36s/it][I 2024-07-23 14:30:03,569] Trial 2 finished with value: 0.3417 and parameters: {'lr': 0.0020914971809550143, 'hidden_sizes': '[32, 32]', 'batch_size': 64}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 16
+[I 2024-07-23 14:32:02,348] Trial 3 finished with value: 0.34199999999999997 and parameters: {'lr': 0.02390008776554977, 'hidden_sizes': '[64, 64]', 'batch_size': 32}. Best is trial 10 with value: 0.34140000000000004.
+Best trial: 10. Best value: 0.3414:  33%|███▎      | 10/30 [44:50<37:53, 113.65s/it]Early stopping at epoch 24
+Best trial: 10. Best value: 0.3414:  37%|███▋      | 11/30 [47:13<38:53, 122.81s/it][I 2024-07-23 14:34:25,908] Trial 13 finished with value: 0.34240000000000004 and parameters: {'lr': 0.021760725774344302, 'hidden_sizes': '[16, 16]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 12
+Best trial: 10. Best value: 0.3414:  40%|████      | 12/30 [47:23<26:30, 88.34s/it] [I 2024-07-23 14:34:35,411] Trial 7 finished with value: 0.34440000000000004 and parameters: {'lr': 0.045761943182271725, 'hidden_sizes': '[64, 64]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 28
+Best trial: 10. Best value: 0.3414:  43%|████▎     | 13/30 [54:05<51:56, 183.32s/it][I 2024-07-23 14:41:17,282] Trial 19 finished with value: 0.34240000000000004 and parameters: {'lr': 0.002185381471449868, 'hidden_sizes': '[32, 64]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 16
+Best trial: 10. Best value: 0.3414:  47%|████▋     | 14/30 [1:00:37<1:05:43, 246.47s/it][I 2024-07-23 14:47:49,672] Trial 6 finished with value: 0.34199999999999997 and parameters: {'lr': 0.09067545722184217, 'hidden_sizes': '[16, 16]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 18
+Best trial: 10. Best value: 0.3414:  50%|█████     | 15/30 [1:05:31<1:05:09, 260.66s/it][I 2024-07-23 14:52:43,215] Trial 1 finished with value: 0.3416 and parameters: {'lr': 0.023077459713417698, 'hidden_sizes': '[16, 16]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 18
+Best trial: 10. Best value: 0.3414:  53%|█████▎    | 16/30 [1:05:46<43:36, 186.89s/it]  [I 2024-07-23 14:52:58,815] Trial 4 finished with value: 0.3478 and parameters: {'lr': 0.00016019257431534712, 'hidden_sizes': '[32, 32]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 25
+Best trial: 10. Best value: 0.3414:  57%|█████▋    | 17/30 [1:06:01<29:15, 135.00s/it][I 2024-07-23 14:53:13,139] Trial 0 finished with value: 0.34309999999999996 and parameters: {'lr': 0.003532178289140526, 'hidden_sizes': '[16, 8]', 'batch_size': 32}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 19
+Best trial: 10. Best value: 0.3414:  60%|██████    | 18/30 [1:08:27<27:40, 138.38s/it][I 2024-07-23 14:55:39,392] Trial 5 finished with value: 0.3448 and parameters: {'lr': 0.003210137376341959, 'hidden_sizes': '[16, 32]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 18
+Best trial: 10. Best value: 0.3414:  63%|██████▎   | 19/30 [1:13:21<33:57, 185.27s/it][I 2024-07-23 15:00:33,888] Trial 21 finished with value: 0.3436 and parameters: {'lr': 0.00024762899642718366, 'hidden_sizes': '[8, 8]', 'batch_size': 32}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 22
+Best trial: 10. Best value: 0.3414:  67%|██████▋   | 20/30 [1:13:31<22:05, 132.53s/it][I 2024-07-23 15:00:43,509] Trial 24 finished with value: 0.3417 and parameters: {'lr': 0.05590980382017087, 'hidden_sizes': '[16, 8]', 'batch_size': 128}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 15
+Best trial: 10. Best value: 0.3414:  70%|███████   | 21/30 [1:14:49<17:25, 116.12s/it][I 2024-07-23 15:02:01,350] Trial 25 finished with value: 0.34440000000000004 and parameters: {'lr': 0.0015782787583219046, 'hidden_sizes': '[16, 32]', 'batch_size': 32}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 11
+Best trial: 10. Best value: 0.3414:  73%|███████▎  | 22/30 [1:17:34<17:26, 130.76s/it][I 2024-07-23 15:04:46,252] Trial 29 finished with value: 0.3427 and parameters: {'lr': 0.07315369682248961, 'hidden_sizes': '[8, 16]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 25
+[I 2024-07-23 15:07:19,349] Trial 14 finished with value: 0.34430000000000005 and parameters: {'lr': 0.0013609091210294, 'hidden_sizes': '[32, 64]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Best trial: 10. Best value: 0.3414:  80%|████████  | 24/30 [1:24:33<17:36, 176.16s/it]Early stopping at epoch 20
+[I 2024-07-23 15:11:45,780] Trial 22 finished with value: 0.3417 and parameters: {'lr': 0.004849476664120738, 'hidden_sizes': '[8, 16]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 52
+Best trial: 10. Best value: 0.3414:  83%|████████▎ | 25/30 [1:25:22<11:29, 137.96s/it][I 2024-07-23 15:12:34,633] Trial 15 finished with value: 0.34330000000000005 and parameters: {'lr': 0.00028341940259487484, 'hidden_sizes': '[64, 64]', 'batch_size': 64}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 32
+Best trial: 10. Best value: 0.3414:  87%|████████▋ | 26/30 [1:28:19<09:59, 149.78s/it][I 2024-07-23 15:15:31,993] Trial 26 finished with value: 0.3419 and parameters: {'lr': 0.01149168564514839, 'hidden_sizes': '[32, 32]', 'batch_size': 32}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 24
+[I 2024-07-23 15:16:40,893] Trial 28 finished with value: 0.34299999999999997 and parameters: {'lr': 0.0020962836183425195, 'hidden_sizes': '[32, 32]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Best trial: 10. Best value: 0.3414:  93%|█████████▎| 28/30 [1:29:59<03:14, 97.01s/it] Early stopping at epoch 39
+[I 2024-07-23 15:17:11,398] Trial 27 finished with value: 0.3456 and parameters: {'lr': 0.00015017482227009968, 'hidden_sizes': '[16, 16]', 'batch_size': 32}. Best is trial 10 with value: 0.34140000000000004.
+Best trial: 10. Best value: 0.3414:  97%|█████████▋| 29/30 [1:30:33<01:18, 78.10s/it]Early stopping at epoch 34
+[I 2024-07-23 15:17:45,369] Trial 20 finished with value: 0.34209999999999996 and parameters: {'lr': 0.00104568935859025, 'hidden_sizes': '[16, 32]', 'batch_size': 16}. Best is trial 10 with value: 0.34140000000000004.
+Early stopping at epoch 89
+[I 2024-07-23 15:22:35,257] Trial 23 finished with value: 0.3409 and parameters: {'lr': 0.0002604873929381903, 'hidden_sizes': '[32, 32]', 'batch_size': 16}. Best is trial 23 with value: 0.3409.
+Best trial: 23. Best value: 0.3409: 100%|██████████| 30/30 [1:35:23<00:00, 190.77s/it]
+Early stopping at epoch 58
+Early stopping at epoch 33
+
+Process finished with exit code 143

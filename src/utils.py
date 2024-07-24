@@ -1,64 +1,74 @@
-import torch
-import torch.nn as nn
 from typing import List
-from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
+import torch
+from torch import nn
 
 
-def compute_monotonicity_metric(model: nn.Module,
-                                data_x: torch.Tensor,
-                                monotonic_indices: List[int],
-                                sample_size: int = 10000,
-                                data_type: str = 'random') -> float:
-    """
-    Compute the monotonicity metric ρ as described in the image.
+def monotonicity_check(
+        model: nn.Module,
+        optimizer: torch.optim.Optimizer,
+        data_x: torch.Tensor,
+        monotonic_indices: List[int],
+        device: torch.device
+) -> float:
+    model.train()
+    optimizer.train()
+    data_x = data_x.to(device)
+    n_points = data_x.shape[0]
 
-    Args:
-        model (nn.Module): The model to evaluate.
-        data_x (torch.Tensor): Input data tensor.
-        monotonic_indices (List[int]): Indices of features expected to be monotonic.
-        sample_size (int): Number of points to sample (for 'random' type).
-        data_type (str): One of 'random', 'train', or 'test'.
+    if not monotonic_indices:
+        print("Warning: No monotonic features specified. Skipping monotonicity check.")
+        return 0.0
 
-    Returns:
-        float: The monotonicity metric ρ.
-    """
-    model.eval()
-    device = next(model.parameters()).device
+    # Separate monotonic and non-monotonic features
+    monotonic_mask = torch.zeros(data_x.shape[1], dtype=torch.bool)
+    monotonic_mask[monotonic_indices] = True
+    data_monotonic = data_x[:, monotonic_mask]
+    data_non_monotonic = data_x[:, ~monotonic_mask]
 
-    if data_type == 'random':
-        x = torch.rand(sample_size, data_x.shape[1], device=device)
-    elif data_type in ['train', 'test']:
-        if sample_size < data_x.shape[0]:
-            indices = torch.randperm(data_x.shape[0])[:sample_size]
-            x = data_x[indices].to(device)
-        else:
-            x = data_x.to(device)
-    else:
-        raise ValueError("data_type must be one of 'random', 'train', or 'test'")
+    data_monotonic.requires_grad_(True)
 
-    x_monotonic = x[:, monotonic_indices]
-    x_monotonic.requires_grad_(True)
+    def closure():
+        optimizer.zero_grad()
+        with torch.set_grad_enabled(True):
+            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
+            loss = torch.sum(outputs)
+        loss.backward()
+        return loss
 
-    y_pred = model(x)
+    optimizer.step(closure)
 
-    grads = torch.autograd.grad(y_pred.sum(), x_monotonic, create_graph=True)[0]
-    min_grads = grads.min(dim=1)[0]
+    grad_wrt_monotonic_input = data_monotonic.grad
 
-    non_monotonic_points = (min_grads < 0).float().sum().item()
-    rho = 1 - (non_monotonic_points / x.shape[0])
+    if grad_wrt_monotonic_input is None:
+        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
+        return 0.0
 
-    return rho
+    # Get component with minimum gradient for each point
+    min_grad_wrt_monotonic_input = grad_wrt_monotonic_input.min(1)[0]
 
-# Example usage:
-# model = YourModel()
-# train_data = YourTrainData()
-# test_data = YourTestData()
-# monotonic_indices = [0, 1, 2]  # Assuming features 0, 1, and 2 should be monotonic
+    # Count the points where gradients are negative
+    number_of_non_monotonic_points = torch.sum(torch.where(min_grad_wrt_monotonic_input < 0, 1, 0)).item()
 
-# rho_random = compute_monotonicity_metric(model, train_data, monotonic_indices, data_type='random')
-# rho_train = compute_monotonicity_metric(model, train_data, monotonic_indices, data_type='train')
-# rho_test = compute_monotonicity_metric(model, test_data, monotonic_indices, data_type='test')
+    return number_of_non_monotonic_points / n_points
 
-# print(f"ρ_random: {rho_random}")
-# print(f"ρ_train: {rho_train}")
-# print(f"ρ_test: {rho_test}")
+
+def get_monotonic_indices(dataset_name: str) -> List[int]:
+    # Remove the "load_" prefix if present
+    dataset_name = dataset_name.replace("load_", "")
+
+    # Define monotonic indices for each dataset
+    monotonic_indices = {
+        'abalone': [6, 7, 8, 9],
+        'auto_mpg': [4, 5, 6],
+        'blog_feedback': list(range(50, 59)),
+        'boston_housing': [5],
+        'compas': [0, 1, 2, 3],
+        'era': [0, 1, 2, 3],
+        'esl': [0, 1, 2, 3],
+        'heart': [3, 4],
+        'lev': [0, 1, 2, 3],
+        'loan': [1, 4],
+        'swd': [0, 1, 2, 4, 6, 8, 9]
+    }
+    return monotonic_indices.get(dataset_name, [])

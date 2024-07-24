@@ -1,14 +1,9 @@
-# implementation 2
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
-from typing import Optional, Union, Callable, Tuple, List
-from functools import lru_cache
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from typing import Optional, Union, Callable, Tuple, List
+from typing import Optional, Tuple, Union, Callable
+from contextlib import contextmanager
 from functools import lru_cache
 
 
@@ -30,37 +25,52 @@ class MonoDense(nn.Module):
         self.is_convex = is_convex
         self.is_concave = is_concave
         self.activation_weights = torch.tensor(activation_weights)
+        self.monotonicity_indicator = monotonicity_indicator
 
         self.weight = nn.Parameter(torch.Tensor(units, in_features))
         self.bias = nn.Parameter(torch.Tensor(units))
-        self.reset_parameters()
 
-        self.monotonicity_indicator = self.get_monotonicity_indicator(
-            monotonicity_indicator, in_features, units
-        )
+        self.built = False
+        self.build(torch.Size([1, in_features]))  # Build immediately
 
-        self.convex_activation, self.concave_activation, self.saturated_activation = self.get_activation_functions(
-            activation)
+    def build(self, input_shape):
+        if not self.built:
+            self.monotonicity_indicator = self.get_monotonicity_indicator(
+                self.monotonicity_indicator, self.in_features, self.units
+            )
+            self.reset_parameters()
+            self.convex_activation, self.concave_activation, self.saturated_activation = self.get_activation_functions(
+                self.org_activation)
+            self.built = True
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.weight, a=1)
-        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
-        bound = 1 / (fan_in ** 0.5)
-        nn.init.uniform_(self.bias, -bound, bound)
+        nn.init.xavier_uniform_(self.weight)
+        nn.init.zeros_(self.bias)
 
-    def get_monotonicity_indicator(self, monotonicity_indicator, in_features, units):
+    def get_config(self):
+        return {
+            'in_features': self.in_features,
+            'units': self.units,
+            'activation': self.org_activation,
+            'monotonicity_indicator': self.monotonicity_indicator.tolist(),
+            'is_convex': self.is_convex,
+            'is_concave': self.is_concave,
+            'activation_weights': self.activation_weights.tolist(),
+        }
+
+    @classmethod
+    def from_config(cls, config):
+        return cls(**config)
+
+    @staticmethod
+    def get_monotonicity_indicator(monotonicity_indicator, in_features, units):
         monotonicity_indicator = torch.tensor(monotonicity_indicator, dtype=torch.float32)
-        if monotonicity_indicator.dim() == 0:
-            monotonicity_indicator = monotonicity_indicator.expand(in_features)
-        elif monotonicity_indicator.dim() == 1:
-            if len(monotonicity_indicator) != in_features:
-                raise ValueError(f"Length of monotonicity_indicator {len(monotonicity_indicator)} "
-                                 f"must match input size {in_features}")
-        else:
-            raise ValueError(
-                f"monotonicity_indicator must be a scalar or 1D tensor, got shape {monotonicity_indicator.shape}")
+        if monotonicity_indicator.dim() < 2:
+            monotonicity_indicator = monotonicity_indicator.reshape(-1, 1)
+        elif monotonicity_indicator.dim() > 2:
+            raise ValueError(f"monotonicity_indicator has rank greater than 2: {monotonicity_indicator.shape}")
 
-        monotonicity_indicator = monotonicity_indicator.unsqueeze(0).expand(units, -1)
+        monotonicity_indicator = monotonicity_indicator.expand(in_features, units).t()
 
         if not torch.all(
                 (monotonicity_indicator == -1) | (monotonicity_indicator == 0) | (monotonicity_indicator == 1)):
@@ -72,31 +82,56 @@ class MonoDense(nn.Module):
     @staticmethod
     @lru_cache(maxsize=None)
     def get_activation_functions(activation):
+        if callable(activation):
+            return activation, lambda x: -activation(-x), MonoDense.get_saturated_activation(activation,
+                                                                                             lambda x: -activation(-x))
+
         if isinstance(activation, str):
             activation = activation.lower()
 
-        if activation == 'relu':
-            convex = F.relu
-        elif activation == 'elu':
-            convex = F.elu
-        elif activation is None or activation == 'linear':
-            convex = lambda x: x
-        else:
+        activations = {
+            'relu': F.relu,
+            'elu': F.elu,
+            'selu': F.selu,
+            'gelu': F.gelu,
+            'tanh': torch.tanh,
+            'sigmoid': torch.sigmoid,
+            None: lambda x: x,
+            'linear': lambda x: x
+        }
+
+        if activation not in activations:
             raise ValueError(f"Unsupported activation: {activation}")
 
-        def concave_activation(x):
-            return -convex(-x)
+        convex = activations[activation]
+        concave_activation = lambda x: -convex(-x)
+        saturated_activation = MonoDense.get_saturated_activation(convex, concave_activation)
 
-        def saturated_activation(x, a=1.0, c=1.0):
-            cc = convex(torch.ones_like(x) * c)
+        return convex, concave_activation, saturated_activation
+
+    @staticmethod
+    def get_saturated_activation(
+            convex_activation: Callable[[torch.Tensor], torch.Tensor],
+            concave_activation: Callable[[torch.Tensor], torch.Tensor],
+            a: float = 1.0,
+            c: float = 1.0,
+    ) -> Callable[[torch.Tensor], torch.Tensor]:
+        def saturated_activation(
+                x: torch.Tensor,
+                convex_activation: Callable[[torch.Tensor], torch.Tensor] = convex_activation,
+                concave_activation: Callable[[torch.Tensor], torch.Tensor] = concave_activation,
+                a: float = a,
+                c: float = c,
+        ) -> torch.Tensor:
+            cc = convex_activation(torch.ones_like(x) * c)
             ccc = concave_activation(-torch.ones_like(x) * c)
             return a * torch.where(
                 x <= 0,
-                convex(x + c) - cc,
+                convex_activation(x + c) - cc,
                 concave_activation(x - c) + cc,
             )
 
-        return convex, concave_activation, saturated_activation
+        return saturated_activation
 
     def apply_monotonicity_indicator_to_kernel(self, kernel):
         abs_kernel = torch.abs(kernel)
@@ -104,14 +139,26 @@ class MonoDense(nn.Module):
         kernel = torch.where(self.monotonicity_indicator == -1, -abs_kernel, kernel)
         return kernel
 
+    @contextmanager
+    def replace_kernel_using_monotonicity_indicator(self):
+        original_kernel = self.weight.data.clone()
+        self.weight.data = self.apply_monotonicity_indicator_to_kernel(self.weight)
+        try:
+            yield
+        finally:
+            self.weight.data = original_kernel
+
     def apply_activations(self, h):
+        if self.org_activation is None:
+            return h
+
         if self.is_convex and self.is_concave:
             raise ValueError("The model cannot be set to be both convex and concave (only linear functions are both).")
 
         if self.is_convex:
-            normalized_activation_weights = torch.tensor([1.0, 0.0, 0.0])
+            normalized_activation_weights = torch.tensor([1.0, 0.0, 0.0], device=h.device)
         elif self.is_concave:
-            normalized_activation_weights = torch.tensor([0.0, 1.0, 0.0])
+            normalized_activation_weights = torch.tensor([0.0, 1.0, 0.0], device=h.device)
         else:
             normalized_activation_weights = self.activation_weights / self.activation_weights.sum()
 
@@ -140,10 +187,12 @@ class MonoDense(nn.Module):
 
 
 class MonotonicSequential(nn.Module):
-    def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int,
-                 activation: str = 'elu', monotonicity_indicator: List[int] = None):
+    def __init__(self, input_size: int, hidden_sizes: list[int], output_size: int,
+                 activation: str = 'elu', monotonicity_indicator: list[int] = None,
+                 final_activation: Optional[Callable] = None):
         super(MonotonicSequential, self).__init__()
         self.layers = nn.ModuleList()
+        self.final_activation = final_activation
 
         # First layer with monotonicity indicator
         self.layers.append(MonoDense(
@@ -167,16 +216,27 @@ class MonotonicSequential(nn.Module):
             in_features=hidden_sizes[-1],
             units=output_size,
             activation=None,  # Linear activation
-            monotonicity_indicator=1  # Always increasing for output layer
+            monotonicity_indicator=0  # Default to no monotonicity enforcement for output layer
         ))
 
     def forward(self, x):
         for layer in self.layers:
             x = layer(x)
+        if self.final_activation:
+            x = self.final_activation(x)
         return x
 
 
-# Example usage:
+# Set random seed for reproducibility
+# torch.manual_seed(42)
+
+# Convert to PyTorch tensors and use float64 for higher precision
+x_train2 = torch.tensor(x_train, dtype=torch.float32)
+y_train2 = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
+x_val2 = torch.tensor(x_val, dtype=torch.float32)
+y_val2 = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
+
+# Create the model
 model = MonotonicSequential(
     input_size=3,
     hidden_sizes=[128, 128],
@@ -187,20 +247,14 @@ model = MonotonicSequential(
 
 print(sum(p.numel() for p in model.parameters() if p.requires_grad))
 
-# Convert to PyTorch tensors
-x_train2 = torch.tensor(x_train, dtype=torch.float32)
-y_train2 = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
-x_val2 = torch.tensor(x_val, dtype=torch.float32)
-y_val2 = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
-
 # Define optimizer and loss function
-initial_lr = 0.005
+initial_lr = 0.001
 lr_schedule = lambda epoch: initial_lr * (0.9 ** (epoch // (5000 // 16)))
 optimizer = optim.Adam(model.parameters(), lr=initial_lr)
 criterion = nn.MSELoss()
 
 # Training loop
-num_epochs = 20
+num_epochs = 30
 batch_size = 16
 
 for epoch in range(num_epochs):
