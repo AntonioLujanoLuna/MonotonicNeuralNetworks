@@ -19,6 +19,7 @@ class HLLNetwork(nn.Module):
         mlp_neurons (List[int]): Sizes of hidden layers in the MLP.
         activation (nn.Module): Activation function for the MLP.
         dropout_rate (float): Dropout rate for the MLP.
+        output_activation (nn.Module): Activation function for the output layer.
         init_method (str): Weight initialization method for the MLP.
         model (HLattice): The underlying HLattice model.
     """
@@ -31,6 +32,7 @@ class HLLNetwork(nn.Module):
             mlp_neurons: List[int],
             activation: nn.Module = nn.ReLU(),
             dropout_rate: float = 0.0,
+            output_activation: Optional[nn.Module] = None,
             init_method: Literal[
                 'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'
     ):
@@ -53,6 +55,7 @@ class HLLNetwork(nn.Module):
         self.mlp_neurons = mlp_neurons
         self.activation = activation
         self.dropout_rate = dropout_rate
+        self.output_activation = output_activation
         self.init_method = init_method
 
         self.model = self._build_model()
@@ -73,7 +76,8 @@ class HLLNetwork(nn.Module):
             output_size=output_len,
             activation=self.activation,
             dropout_rate=self.dropout_rate,
-            init_method=self.init_method
+            init_method=self.init_method,
+            output_activation=self.output_activation
         )
 
         return HLattice(self.dim, torch.tensor(self.lattice_sizes), self.increasing, ann)

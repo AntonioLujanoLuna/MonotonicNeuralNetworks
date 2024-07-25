@@ -73,86 +73,6 @@ class MinMaxNetwork(nn.Module):
         y = torch.min(torch.stack(group_outputs), dim=0)[0]
         return torch.sigmoid(y) if self.use_sigmoid else y
 
-
-class SmoothMinMaxNetwork(nn.Module):
-    def __init__(
-        self,
-        n: int,
-        K: int,
-        h_K: int,
-        monotonic_indices: List[int],
-        beta: float = -1.0,
-        init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform',
-        transform: Literal['exp', 'explin', 'sqr'] = 'exp',
-        use_sigmoid: bool = False
-    ):
-        """
-        SmoothMinMaxNetwork implementation with mask for non-monotonic features.
-
-        Args:
-            n (int): Number of inputs.
-            K (int): Number of groups.
-            h_K (int): Number of neurons per group.
-            monotonic_indices (List[int]): Indices of monotonic features.
-            beta (float): Initial value for the smoothing parameter.
-            init_method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']): Weight initialization method.
-            transform (Literal['exp', 'explin', 'sqr']): Type of transformation for ensuring positivity.
-            use_sigmoid (bool): Whether to apply sigmoid to the output.
-        """
-        super(SmoothMinMaxNetwork, self).__init__()
-        self.K = K
-        self.h_K = h_K
-        self.monotonic_mask = torch.zeros(n, dtype=torch.bool)
-        self.monotonic_mask[monotonic_indices] = True
-        self.transform = transform
-        self.use_sigmoid = use_sigmoid
-
-        self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float))
-        self.z = nn.ParameterList([nn.Parameter(torch.empty(h_K, n)) for _ in range(K)])
-        self.t = nn.ParameterList([nn.Parameter(torch.empty(h_K)) for _ in range(K)])
-
-        for params in self.parameters():
-            if len(params.shape) > 1:
-                init_weights(params, method=init_method)
-            else:
-                init_weights(params, method='zeros')
-
-    def init_weights(self, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']) -> None:
-        """Initialize network parameters."""
-        for params in self.parameters():
-            if len(params.shape) > 1:
-                init_weights(params, method=method)
-            else:
-                init_weights(params, method='zeros')
-
-    def soft_max(self, a: torch.Tensor) -> torch.Tensor:
-        """Compute the soft maximum."""
-        return torch.logsumexp(torch.exp(self.beta) * a, dim=1) / torch.exp(self.beta)
-
-    def soft_min(self, a: torch.Tensor) -> torch.Tensor:
-        """Compute the soft minimum."""
-        return -torch.logsumexp(-torch.exp(self.beta) * a, dim=1) / torch.exp(self.beta)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass of the network.
-
-        Args:
-            x (torch.Tensor): Input tensor of shape (batch_size, n).
-
-        Returns:
-            torch.Tensor: Output tensor of shape (batch_size,).
-        """
-        group_outputs = []
-        for i in range(self.K):
-            w = torch.where(self.monotonic_mask, transform_weights(self.z[i], self.transform), self.z[i])
-            a = torch.matmul(x, w.t()) + self.t[i]
-            g = self.soft_max(a)
-            group_outputs.append(g)
-
-        y = self.soft_min(torch.stack(group_outputs, dim=1))
-        return torch.sigmoid(y) if self.use_sigmoid else y
-
 class MinMaxNetworkWithMLP(nn.Module):
     def __init__(
         self,
@@ -236,6 +156,85 @@ class MinMaxNetworkWithMLP(nn.Module):
         y = torch.min(torch.stack(group_outputs, dim=1), dim=1)[0]
         return torch.sigmoid(y) if self.use_sigmoid else y
 
+
+class SmoothMinMaxNetwork(nn.Module):
+    def __init__(
+        self,
+        n: int,
+        K: int,
+        h_K: int,
+        monotonic_indices: List[int],
+        beta: float = -1.0,
+        init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform',
+        transform: Literal['exp', 'explin', 'sqr'] = 'exp',
+        use_sigmoid: bool = False
+    ):
+        """
+        SmoothMinMaxNetwork implementation with mask for non-monotonic features.
+
+        Args:
+            n (int): Number of inputs.
+            K (int): Number of groups.
+            h_K (int): Number of neurons per group.
+            monotonic_indices (List[int]): Indices of monotonic features.
+            beta (float): Initial value for the smoothing parameter.
+            init_method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']): Weight initialization method.
+            transform (Literal['exp', 'explin', 'sqr']): Type of transformation for ensuring positivity.
+            use_sigmoid (bool): Whether to apply sigmoid to the output.
+        """
+        super(SmoothMinMaxNetwork, self).__init__()
+        self.K = K
+        self.h_K = h_K
+        self.monotonic_mask = torch.zeros(n, dtype=torch.bool)
+        self.monotonic_mask[monotonic_indices] = True
+        self.transform = transform
+        self.use_sigmoid = use_sigmoid
+
+        self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float))
+        self.z = nn.ParameterList([nn.Parameter(torch.empty(h_K, n)) for _ in range(K)])
+        self.t = nn.ParameterList([nn.Parameter(torch.empty(h_K)) for _ in range(K)])
+
+        for params in self.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=init_method)
+            else:
+                init_weights(params, method='zeros')
+
+    def init_weights(self, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']) -> None:
+        """Initialize network parameters."""
+        for params in self.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=method)
+            else:
+                init_weights(params, method='zeros')
+
+    def soft_max(self, a: torch.Tensor) -> torch.Tensor:
+        """Compute the soft maximum."""
+        return torch.logsumexp(torch.exp(self.beta) * a, dim=1) / torch.exp(self.beta)
+
+    def soft_min(self, a: torch.Tensor) -> torch.Tensor:
+        """Compute the soft minimum."""
+        return -torch.logsumexp(-torch.exp(self.beta) * a, dim=1) / torch.exp(self.beta)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the network.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, n).
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size,).
+        """
+        group_outputs = []
+        for i in range(self.K):
+            w = torch.where(self.monotonic_mask, transform_weights(self.z[i], self.transform), self.z[i])
+            a = torch.matmul(x, w.t()) + self.t[i]
+            g = self.soft_max(a)
+            group_outputs.append(g)
+
+        y = self.soft_min(torch.stack(group_outputs, dim=1))
+        return torch.sigmoid(y) if self.use_sigmoid else y
 
 class SmoothMinMaxNetworkWithMLP(nn.Module):
     def __init__(

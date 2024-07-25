@@ -1,7 +1,8 @@
-from typing import List, Literal, Union
+from typing import List, Literal, Union, Dict
 import torch
 from torch import nn
-
+import csv
+import json
 
 def monotonicity_check(
         model: nn.Module,
@@ -139,3 +140,39 @@ def transform_weights(weights: torch.Tensor, method: Literal['exp', 'explin', 's
         return weights * weights
     else:
         raise ValueError(f"Unsupported transform method: {method}")
+
+def write_results_to_csv(filename: str, dataset_name: str, task_type: str, metric_name: str,
+                         metric_value: float, metric_std: float, best_config: Dict, mono_metrics: Dict, n_params: int):
+    # Convert best_config to a JSON string for easier CSV handling
+    best_config_str = json.dumps(best_config)
+
+    row = [
+        dataset_name,
+        task_type,
+        metric_name,
+        f"{metric_value:.4f}",
+        f"{metric_std:.4f}",
+        n_params,
+        best_config_str
+    ]
+
+    # Add monotonicity metrics (mean and std) to the row
+    for key in ['random', 'train', 'val']:
+        mean, std = mono_metrics[key]
+        row.extend([f"{mean:.4f}", f"{std:.4f}"])
+
+    with open(filename, 'a', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(row)
+
+def count_parameters(module: nn.Module) -> int:
+    """
+    Count the number of trainable parameters in a module.
+
+    Args:
+        module (nn.Module): The module to count parameters.
+
+    Returns:
+        int: The number of trainable parameters.
+    """
+    return sum(p.numel() for p in module.parameters() if p.requires_grad)
