@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import List
+from typing import List, Literal
 import random
 from itertools import combinations
 from MLP import StandardMLP
@@ -9,19 +9,23 @@ from torch.utils.data import DataLoader
 class MixupRegularizerNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int,
                  monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                 regularization_type: str = 'mixup'):
+                 regularization_type: str = 'mixup',
+                 init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
+):
         super(MixupRegularizerNetwork, self).__init__()
         self.monotonic_indices = monotonic_indices
         self.monotonicity_weight = monotonicity_weight
         self.regularization_type = regularization_type
         self.n_monotonic_features = len(monotonic_indices)
+        self.init_method = init_method
 
         self.network = StandardMLP(
             input_size=input_size,
             hidden_sizes=hidden_sizes,
             output_size=output_size,
             activation=nn.ReLU(),
-            output_activation=nn.Identity()
+            output_activation=nn.Identity(),
+            init_method=self.init_method
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

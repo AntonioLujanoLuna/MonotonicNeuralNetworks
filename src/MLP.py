@@ -2,6 +2,9 @@ import torch
 import torch.nn as nn
 from typing import List, Literal
 
+from src.utils import init_weights
+
+
 class StandardMLP(nn.Module):
     """
     Standard Multi-Layer Perceptron (MLP) implementation.
@@ -27,7 +30,8 @@ class StandardMLP(nn.Module):
         activation: nn.Module = nn.ReLU(),
         output_activation: nn.Module = nn.Identity(),
         dropout_rate: float = 0.0,
-        init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'
+        init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
+
     ):
         """
         Initialize the StandardMLP.
@@ -60,7 +64,11 @@ class StandardMLP(nn.Module):
         self.dropout = nn.Dropout(dropout_rate)
 
         # Initialize weights
-        self.init_weights(init_method)
+        for params in self.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=init_method)
+            else:
+                init_weights(params, method='zeros')
 
     def init_weights(self, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal']) -> None:
         """
@@ -69,39 +77,11 @@ class StandardMLP(nn.Module):
         Args:
             method (str): Weight initialization method.
         """
-        self._init_weights(self, method)
-
-    @staticmethod
-    def _init_weights(module: nn.Module, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal']) -> None:
-        """
-        Initialize weights of a module using the specified method.
-
-        Args:
-            module (nn.Module): The module whose weights to initialize.
-            method (str): Initialization method.
-        """
-        if method.startswith('xavier'):
-            init_func = nn.init.xavier_uniform_ if method.endswith('uniform') else nn.init.xavier_normal_
-        elif method.startswith('kaiming'):
-            init_func = nn.init.kaiming_uniform_ if method.endswith('uniform') else nn.init.kaiming_normal_
-        elif method == 'truncated_normal':
-            def truncated_normal_(tensor, mean=0., std=1.):
-                with torch.no_grad():
-                    tensor.normal_(mean, std)
-                    while True:
-                        cond = (tensor < -2 * std) | (tensor > 2 * std)
-                        if not torch.sum(cond):
-                            break
-                        tensor[cond] = tensor[cond].normal_(mean, std)
-            init_func = truncated_normal_
-        else:
-            raise ValueError(f"Unsupported initialization method: {method}")
-
-        for param in module.parameters():
-            if len(param.shape) > 1:  # weights
-                init_func(param)
-            else:  # biases
-                nn.init.zeros_(param)
+        for params in self.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=method)
+            else:
+                init_weights(params, method='zeros')
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -130,37 +110,3 @@ class StandardMLP(nn.Module):
             int: The total number of trainable parameters.
         """
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    def check_grad(self) -> int:
-        """
-        Count the number of parameters with zero gradients.
-
-        Returns:
-            int: Number of parameters with zero gradients.
-        """
-        return sum(torch.sum((param.grad == 0).int()).item() for param in self.parameters() if param.grad is not None)
-
-    def check_grad_neuron(self) -> int:
-        """
-        Count the number of neurons with all zero gradients.
-
-        Returns:
-            int: Number of neurons with all zero gradients.
-        """
-        return sum(self._check_grad_neuron(layer.weight, layer.bias) for layer in self.layers)
-
-    @staticmethod
-    def _check_grad_neuron(weights: torch.Tensor, biases: torch.Tensor) -> int:
-        """
-        Static method to count the number of neurons with all zero gradients.
-
-        Args:
-            weights (torch.Tensor): Weight tensor.
-            biases (torch.Tensor): Bias tensor.
-
-        Returns:
-            int: Number of neurons with all zero gradients.
-        """
-        weights_zero = torch.all(weights.grad == 0, dim=1).int()
-        biases_zero = (biases.grad == 0).int()
-        return torch.sum(weights_zero * biases_zero).item()

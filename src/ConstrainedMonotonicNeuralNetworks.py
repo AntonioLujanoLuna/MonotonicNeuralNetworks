@@ -1,11 +1,10 @@
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import torch.nn.functional as F
-from typing import Optional, Tuple, Union, Callable
+from typing import Optional, Tuple, Union, Callable, Literal
 from contextlib import contextmanager
 from functools import lru_cache
-
+from src.utils import init_weights
 
 class MonoDense(nn.Module):
     def __init__(
@@ -17,9 +16,12 @@ class MonoDense(nn.Module):
             is_convex: bool = False,
             is_concave: bool = False,
             activation_weights: Tuple[float, float, float] = (7.0, 7.0, 2.0),
+            init_method: Literal[
+                'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
     ):
         super(MonoDense, self).__init__()
         self.in_features = in_features
+        self.init_method = init_method
         self.units = units
         self.org_activation = activation
         self.is_convex = is_convex
@@ -31,9 +33,9 @@ class MonoDense(nn.Module):
         self.bias = nn.Parameter(torch.Tensor(units))
 
         self.built = False
-        self.build(torch.Size([1, in_features]))  # Build immediately
+        self.build()
 
-    def build(self, input_shape):
+    def build(self):
         if not self.built:
             self.monotonicity_indicator = self.get_monotonicity_indicator(
                 self.monotonicity_indicator, self.in_features, self.units
@@ -44,13 +46,18 @@ class MonoDense(nn.Module):
             self.built = True
 
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.weight)
-        nn.init.zeros_(self.bias)
+        for params in self.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=self.init_method)
+            else:
+                init_weights(params, method='zeros')
+
 
     def get_config(self):
         return {
             'in_features': self.in_features,
             'units': self.units,
+            'init_method': self.init_method,
             'activation': self.org_activation,
             'monotonicity_indicator': self.monotonicity_indicator.tolist(),
             'is_convex': self.is_convex,
@@ -124,7 +131,7 @@ class MonoDense(nn.Module):
                 c: float = c,
         ) -> torch.Tensor:
             cc = convex_activation(torch.ones_like(x) * c)
-            ccc = concave_activation(-torch.ones_like(x) * c)
+            # ccc = concave_activation(-torch.ones_like(x) * c)
             return a * torch.where(
                 x <= 0,
                 convex_activation(x + c) - cc,
@@ -226,62 +233,3 @@ class MonotonicSequential(nn.Module):
             x = self.final_activation(x)
         return x
 
-
-# Set random seed for reproducibility
-# torch.manual_seed(42)
-
-# Convert to PyTorch tensors and use float64 for higher precision
-x_train2 = torch.tensor(x_train, dtype=torch.float32)
-y_train2 = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
-x_val2 = torch.tensor(x_val, dtype=torch.float32)
-y_val2 = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
-
-# Create the model
-model = MonotonicSequential(
-    input_size=3,
-    hidden_sizes=[128, 128],
-    output_size=1,
-    activation='elu',
-    monotonicity_indicator=[1, 0, -1]
-)
-
-print(sum(p.numel() for p in model.parameters() if p.requires_grad))
-
-# Define optimizer and loss function
-initial_lr = 0.001
-lr_schedule = lambda epoch: initial_lr * (0.9 ** (epoch // (5000 // 16)))
-optimizer = optim.Adam(model.parameters(), lr=initial_lr)
-criterion = nn.MSELoss()
-
-# Training loop
-num_epochs = 30
-batch_size = 16
-
-for epoch in range(num_epochs):
-    model.train()
-    total_loss = 0
-    for i in range(0, len(x_train2), batch_size):
-        batch_x = x_train2[i:i + batch_size]
-        batch_y = y_train2[i:i + batch_size]
-
-        optimizer.zero_grad()
-        outputs = model(batch_x)
-        loss = criterion(outputs, batch_y)
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-
-    avg_loss = total_loss / (len(x_train2) / batch_size)
-
-    # Update learning rate
-    for param_group in optimizer.param_groups:
-        param_group['lr'] = lr_schedule(epoch)
-
-    # Validation
-    model.eval()
-    with torch.no_grad():
-        val_outputs = model(x_val2)
-        val_loss = criterion(val_outputs, y_val2)
-
-    print(f'Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, Val Loss: {val_loss.item():.4f}')

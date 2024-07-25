@@ -1,8 +1,8 @@
 import torch
 import torch.nn as nn
 from pmlayer.torch.layers import HLattice
-from typing import List, Optional, Union, Literal
-from StandardMLP import StandardMLP  # Assuming StandardMLP is in a file named StandardMLP.py
+from typing import List, Optional, Literal
+from MLP import StandardMLP
 
 
 class HLLNetwork(nn.Module):
@@ -90,100 +90,6 @@ class HLLNetwork(nn.Module):
         """
         return self.model(x)
 
-    def fit(
-            self,
-            x_train: torch.Tensor,
-            y_train: torch.Tensor,
-            x_val: Optional[torch.Tensor] = None,
-            y_val: Optional[torch.Tensor] = None,
-            epochs: int = 1000,
-            learning_rate: float = 0.01,
-            batch_size: int = 32,
-            early_stopping: bool = True,
-            patience: int = 10
-    ) -> dict:
-        """
-        Train the HLL model.
-
-        Args:
-            x_train (torch.Tensor): Training input data.
-            y_train (torch.Tensor): Training target data.
-            x_val (Optional[torch.Tensor]): Validation input data.
-            y_val (Optional[torch.Tensor]): Validation target data.
-            epochs (int): Maximum number of training epochs.
-            learning_rate (float): Learning rate for the optimizer.
-            batch_size (int): Batch size for training.
-            early_stopping (bool): Whether to use early stopping.
-            patience (int): Number of epochs with no improvement after which training will be stopped.
-
-        Returns:
-            dict: A dictionary containing training history (loss and validation loss if applicable).
-        """
-        optimizer = torch.optim.Rprop(self.parameters(), lr=learning_rate, etas=(0.5, 1.2), step_sizes=(1e-06, 50))
-        criterion = nn.MSELoss()
-        history = {'train_loss': [], 'val_loss': []}
-        best_val_loss = float('inf')
-        epochs_no_improve = 0
-        best_state_dict = None
-
-        for epoch in range(epochs):
-            self.train()
-            train_loss = 0.0
-            for i in range(0, len(x_train), batch_size):
-                batch_x = x_train[i:i + batch_size]
-                batch_y = y_train[i:i + batch_size]
-
-                optimizer.zero_grad()
-                outputs = self(batch_x)
-                loss = criterion(outputs, batch_y)
-                loss.backward()
-                optimizer.step()
-
-                train_loss += loss.item()
-
-            train_loss /= (len(x_train) // batch_size)
-            history['train_loss'].append(train_loss)
-
-            if x_val is not None and y_val is not None:
-                self.eval()
-                with torch.no_grad():
-                    val_outputs = self(x_val)
-                    val_loss = criterion(val_outputs, y_val).item()
-                history['val_loss'].append(val_loss)
-
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    epochs_no_improve = 0
-                    best_state_dict = self.state_dict()
-                else:
-                    epochs_no_improve += 1
-
-                if early_stopping and epochs_no_improve == patience:
-                    print(f"Early stopping triggered at epoch {epoch + 1}")
-                    self.load_state_dict(best_state_dict)
-                    break
-
-            print(f"Epoch [{epoch + 1}/{epochs}], Train Loss: {train_loss:.4f}", end="")
-            if x_val is not None:
-                print(f", Validation Loss: {val_loss:.4f}")
-            else:
-                print()
-
-        return history
-
-    def predict(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Make predictions using the trained model.
-
-        Args:
-            x (torch.Tensor): Input data for predictions.
-
-        Returns:
-            torch.Tensor: Predicted output.
-        """
-        self.eval()
-        with torch.no_grad():
-            return self(x)
 
     def count_parameters(self) -> int:
         """

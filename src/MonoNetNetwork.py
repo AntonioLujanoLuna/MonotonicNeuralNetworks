@@ -7,6 +7,9 @@ from torch.nn import init
 import math
 from typing import List, Literal
 
+from src.utils import init_weights
+
+
 class InterpretableLayer(nn.Module):
     """
     An interpretable layer that applies a weight to the input.
@@ -118,37 +121,6 @@ class MonotonicLayer(nn.Module):
             ret = ret + self.bias
         return ret
 
-def init_weights(module: nn.Module, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal']) -> None:
-    """
-    Initialize weights of a module using the specified method.
-
-    Args:
-        module (nn.Module): The module whose weights to initialize.
-        method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal']): Initialization method.
-    """
-    if method.startswith('xavier'):
-        init_func = nn.init.xavier_uniform_ if method.endswith('uniform') else nn.init.xavier_normal_
-    elif method.startswith('kaiming'):
-        init_func = nn.init.kaiming_uniform_ if method.endswith('uniform') else nn.init.kaiming_normal_
-    elif method == 'truncated_normal':
-        def truncated_normal_(tensor, mean=0., std=1.):
-            with torch.no_grad():
-                tensor.normal_(mean, std)
-                while True:
-                    cond = (tensor < -2 * std) | (tensor > 2 * std)
-                    if not torch.sum(cond):
-                        break
-                    tensor[cond] = tensor[cond].normal_(mean, std)
-        init_func = truncated_normal_
-    else:
-        raise ValueError(f"Unsupported initialization method: {method}")
-
-    for param in module.parameters():
-        if len(param.shape) > 1:  # weights
-            init_func(param)
-        else:  # biases
-            nn.init.zeros_(param)
-
 class MonoNet(nn.Module):
     """
     MonoNet: A neural network with unconstrained, interpretable, and monotonic layers.
@@ -164,7 +136,9 @@ class MonoNet(nn.Module):
 
     def __init__(self, num_features: int, num_classes: int, hidden_sizes: List[int] = [16, 16],
                  interpretable_size: int = 8, monotonic_sizes: List[int] = [32],
-                 activation: nn.Module = nn.Tanh(), init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'):
+                 activation: nn.Module = nn.Tanh(),
+                 init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
+):
         """
         Initialize the MonoNet.
 
@@ -175,7 +149,7 @@ class MonoNet(nn.Module):
             interpretable_size (int): Size of the interpretable layer.
             monotonic_sizes (List[int]): Sizes of hidden layers in the monotonic block.
             activation (nn.Module): Activation function to use in the network.
-            init_method (Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal']): Weight initialization method.
+            init_method (init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']): Weight initialization method.
         """
         super(MonoNet, self).__init__()
 
@@ -184,10 +158,12 @@ class MonoNet(nn.Module):
         self.pre_monotonic = InterpretableLayer(interpretable_size)
         self.monotonic_block = self._build_monotonic_block(interpretable_size, monotonic_sizes, num_classes)
         self.output = InterpretableLayer(num_classes)
-
         self.activation = activation
-
-        init_weights(self, init_method)
+        for params in self.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=init_method)
+            else:
+                init_weights(params, method='zeros')
 
     def _build_unconstrained_block(self, input_size: int, hidden_sizes: List[int]) -> nn.Sequential:
         """Build the unconstrained block of the network."""

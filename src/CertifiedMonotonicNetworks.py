@@ -3,16 +3,18 @@ import torch.nn as nn
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
-from typing import List
+from typing import List, Literal
 import torch.utils.data as Data
 import random
 from itertools import combinations
+
+from src.utils import init_weights
 
 
 class CertifiedMonotonicNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int,
                  monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                 regularization_type: str = 'random', b: float = 0.2):
+                 regularization_type: str = 'random', b: float = 0.2, init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'):
         super(CertifiedMonotonicNetwork, self).__init__()
         self.monotonic_indices = monotonic_indices
         self.monotonicity_weight = monotonicity_weight
@@ -30,6 +32,11 @@ class CertifiedMonotonicNetwork(nn.Module):
         layers.append(nn.Linear(prev_size, output_size))
 
         self.network = nn.Sequential(*layers)
+        for params in self.network.parameters():
+            if len(params.shape) > 1:
+                init_weights(params, method=init_method)
+            else:
+                init_weights(params, method='zeros')
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.network(x)

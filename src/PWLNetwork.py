@@ -1,13 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.autograd as autograd
-from typing import List
+from typing import List, Literal
 from MLP import StandardMLP
 from torch.utils.data import DataLoader
 
 class PWLNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int,
-                 monotonic_indices: List[int], monotonicity_weight: float = 1.0):
+                 monotonic_indices: List[int], monotonicity_weight: float = 1.0,
+                 init_method: Literal[
+                     'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
+                 ):
         """
         Initialize the PWLNetwork.
 
@@ -17,17 +20,20 @@ class PWLNetwork(nn.Module):
             output_size (int): Size of the output layer.
             monotonic_indices (List[int]): Indices of monotonic features (assumed to be increasing).
             monotonicity_weight (float): Weight for the monotonicity loss term.
+            init_method (str): Weight initialization method.
         """
         super(PWLNetwork, self).__init__()
         self.monotonic_indices = monotonic_indices
         self.monotonicity_weight = monotonicity_weight
+        self.init_method = init_method
 
         self.network = StandardMLP(
             input_size=input_size,
             hidden_sizes=hidden_sizes,
             output_size=output_size,
             activation=nn.ReLU(),
-            output_activation=nn.Identity()
+            output_activation=nn.Identity(),
+            init_method=self.init_method
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
