@@ -2,10 +2,10 @@ import ast
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
-from sklearn.model_selection import KFold, train_test_split
+from torch.utils.data import TensorDataset, DataLoader, random_split
+from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score
-from typing import Callable, Tuple, List, Dict
+from typing import Callable, Tuple, List, Dict, Union
 import optuna
 from schedulefree import AdamWScheduleFree
 from MLP import StandardMLP
@@ -86,25 +86,25 @@ def train_model(model: nn.Module, optimizer, train_loader: DataLoader, val_loade
     model.load_state_dict(best_model_state)
     return best_val_loss
 
-def evaluate_model(model: nn.Module, optimizer, data_loader: DataLoader, task_type: str, device: torch.device) -> float:
+@torch.no_grad()
+def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: DataLoader,
+                   task_type: str, device: torch.device) -> float:
     model.eval()
     optimizer.eval()
     predictions, true_values = [], []
-    with torch.no_grad():
-        for batch_X, batch_y in data_loader:
-            batch_X, batch_y = batch_X.to(device), batch_y.to(device)
-            outputs = model(batch_X)
-            predictions.extend(outputs.cpu().numpy())
-            true_values.extend(batch_y.cpu().numpy())
+    for batch_X, batch_y in data_loader:
+        batch_X, batch_y = batch_X.to(device), batch_y.to(device)
+        outputs = model(batch_X)
+        predictions.extend(outputs.cpu().numpy())
+        true_values.extend(batch_y.cpu().numpy())
 
     if task_type == "regression":
         return np.sqrt(mean_squared_error(true_values, predictions))
     else:
         return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
 
-
-def objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray, X_val: np.ndarray, y_val: np.ndarray,
-              task_type: str) -> float:
+def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
+              val_dataset: torch.utils.data.Subset, task_type: str) -> float:
     config = {
         "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
         "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes",
@@ -119,12 +119,12 @@ def objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray, X_val: np.ndarr
     g = torch.Generator()
     g.manual_seed(GLOBAL_SEED)
 
-    train_dataset = TensorDataset(torch.FloatTensor(X), torch.FloatTensor(y).reshape(-1, 1))
     train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, generator=g)
-    val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
     val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
 
-    model = create_model(config, X.shape[1], task_type, GLOBAL_SEED).to(device)
+    # Use the original dataset to get the input size
+    input_size = dataset.tensors[0].shape[1]
+    model = create_model(config, input_size, task_type, GLOBAL_SEED).to(device)
     optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
     val_metric = train_model(model, optimizer, train_loader, val_loader, config, task_type, device)
 
@@ -132,15 +132,12 @@ def objective(trial: optuna.Trial, X: np.ndarray, y: np.ndarray, X_val: np.ndarr
 
 
 def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, n_trials: int = 30,
-                             sample_size: int = 50000) -> Dict:
+                             sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
     if len(X) > sample_size:
         if task_type == "classification":
-            _, X_sampled, _, y_sampled = train_test_split(
-                X, y,
-                train_size=sample_size,
-                stratify=y,
-                random_state=GLOBAL_SEED
-            )
+            indices = torch.randperm(len(X))[:sample_size]
+            X_sampled = X[indices]
+            y_sampled = y[indices]
         else:
             np.random.seed(GLOBAL_SEED)
             indices = np.random.choice(len(X), sample_size, replace=False)
@@ -148,17 +145,15 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, n_tri
     else:
         X_sampled, y_sampled = X, y
 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X_sampled, y_sampled,
-        test_size=0.2,
-        stratify=y_sampled if task_type == "classification" else None,
-        random_state=GLOBAL_SEED
-    )
+    dataset = TensorDataset(torch.FloatTensor(X_sampled), torch.FloatTensor(y_sampled).reshape(-1, 1))
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size], generator=torch.Generator().manual_seed(GLOBAL_SEED))
 
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        study.optimize(lambda trial: objective(trial, X_train, y_train, X_val, y_val, task_type),
+        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type),
                        n_trials=n_trials, show_progress_bar=False, n_jobs=-1)
         best_params = study.best_params
         best_params["epochs"] = 100
@@ -176,8 +171,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, n_tri
 
 
 def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLoader, val_loader: DataLoader,
-                               task_type: str, device: torch.device, monotonic_indices: List[int]) -> Tuple[
-    float, Dict]:
+                               task_type: str, device: torch.device, monotonic_indices: List[int]) -> Tuple[float, Dict]:
     model.eval()
     optimizer.eval()
     predictions, true_values = [], []
@@ -243,7 +237,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
                    n_splits: int = 5) -> Tuple[List[float], Dict]:
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
     scores = []
-    mono_metrics_list = []
+    mono_metrics = {'random': [], 'train': [], 'val': []}
     best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -263,25 +257,20 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
 
-        val_metric, mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, val_loader, task_type,
-                                                              device, monotonic_indices)
+        val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, val_loader, task_type,
+                                                                   device, monotonic_indices)
         scores.append(val_metric)
-        mono_metrics_list.append(mono_metrics)
+        for key in mono_metrics:
+            mono_metrics[key].append(fold_mono_metrics[key])
 
-    avg_mono_metrics = {
-        'random': np.mean([m['random'] for m in mono_metrics_list]),
-        'train': np.mean([m['train'] for m in mono_metrics_list]),
-        'val': np.mean([m['val'] for m in mono_metrics_list])
-    }
-
-    return scores, avg_mono_metrics
+    return scores, mono_metrics
 
 
 def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray,
                         best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 5) -> Tuple[
     List[float], Dict]:
     scores = []
-    mono_metrics_list = []
+    mono_metrics = {'random': [], 'train': [], 'val': []}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
 
@@ -302,18 +291,14 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
         _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
 
-        test_metric, mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader, task_type,
-                                                               device, monotonic_indices)
-        scores.append(test_metric)
-        mono_metrics_list.append(mono_metrics)
+        val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, val_loader,
+                                                                   task_type,
+                                                                   device, monotonic_indices)
+        scores.append(val_metric)
+        for key in mono_metrics:
+            mono_metrics[key].append(fold_mono_metrics[key])
 
-    avg_mono_metrics = {
-        'random': np.mean([m['random'] for m in mono_metrics_list]),
-        'train': np.mean([m['train'] for m in mono_metrics_list]),
-        'test': np.mean([m['val'] for m in mono_metrics_list])
-    }
-
-    return scores, avg_mono_metrics
+    return scores, mono_metrics
 
 
 def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[List[float], Dict, Dict]:
@@ -321,7 +306,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_monotonic_indices(data_loader.__name__)
-    n_trials = 30
+    n_trials = 10
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials)
 
     if data_loader == load_blog_feedback:
@@ -331,7 +316,11 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
         y = np.concatenate((y, y_test))
         scores, mono_metrics = cross_validate(X, y, best_config, task_type, monotonic_indices)
 
-    return scores, best_config, mono_metrics
+    avg_mono_metrics = {
+        key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
+    }
+
+    return scores, best_config, avg_mono_metrics
 
 
 def main():
@@ -341,8 +330,6 @@ def main():
         load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
         load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd
     ]
-
-    dataset_loaders = [load_auto_mpg, load_swd]
 
     sample_size = 30000
 
@@ -354,9 +341,8 @@ def main():
         print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
         print(f"Best configuration: {best_config}")
         print("Monotonicity violation rates:")
-        print(f"  Random data: {mono_metrics['random']:.4f}")
-        print(f"  Train data: {mono_metrics['train']:.4f}")
-        print(f"  Test data: {mono_metrics['val']:.4f}")
+        for key, (mean, std) in mono_metrics.items():
+            print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
 
 if __name__ == '__main__':
     main()
