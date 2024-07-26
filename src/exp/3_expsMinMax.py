@@ -163,8 +163,8 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     def objective(trial):
         config = {
             "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
-            "K": trial.suggest_int("K", 2, 8),
-            "h_K": trial.suggest_categorical("h_K", [8, 16, 32, 64]),
+            "K": trial.suggest_int("K", 2, 6),
+            "h_K": trial.suggest_categorical("h_K", [4, 8, 16, 32, 64]),
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
             "epochs": 100,
         }

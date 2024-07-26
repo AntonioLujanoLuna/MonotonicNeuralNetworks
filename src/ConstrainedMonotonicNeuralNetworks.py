@@ -1,9 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple, Union, Callable, Literal
+from typing import Optional, Tuple, Union, Callable, Literal, List
 from contextlib import contextmanager
 from functools import lru_cache
+
+from src.MLP import StandardMLP
 from src.utils import init_weights
 
 class MonoDense(nn.Module):
@@ -193,43 +195,155 @@ class MonoDense(nn.Module):
         return self.apply_activations(h)
 
 
-class MonotonicSequential(nn.Module):
-    def __init__(self, input_size: int, hidden_sizes: list[int], output_size: int,
-                 activation: str = 'elu', monotonicity_indicator: list[int] = None,
-                 final_activation: Optional[Callable] = None):
-        super(MonotonicSequential, self).__init__()
-        self.layers = nn.ModuleList()
+class ConstrainedMonotonicNeuralNetwork(nn.Module):
+    def __init__(self,
+                 input_size: int,
+                 hidden_sizes: List[int],
+                 output_size: int,
+                 activation: str = 'elu',
+                 monotonicity_indicator: List[int] = None,
+                 final_activation: Optional[Callable] = None,
+                 dropout_rate: float = 0.0,
+                 init_method: Literal[
+                     'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform',
+                 architecture_type: Literal['type1', 'type2'] = 'type1'):
+        super(ConstrainedMonotonicNeuralNetwork, self).__init__()
+        self.input_size = input_size
+        self.hidden_sizes = hidden_sizes
+        self.output_size = output_size
+        self.activation = activation
+        self.monotonicity_indicator = monotonicity_indicator or [1] * input_size
         self.final_activation = final_activation
+        self.dropout_rate = dropout_rate
+        self.architecture_type = architecture_type
 
-        # First layer with monotonicity indicator
-        self.layers.append(MonoDense(
-            in_features=input_size,
-            units=hidden_sizes[0],
-            activation=activation,
-            monotonicity_indicator=monotonicity_indicator if monotonicity_indicator is not None else 1
+        if len(self.monotonicity_indicator) != input_size:
+            raise ValueError(
+                f"Length of monotonicity_indicator ({len(self.monotonicity_indicator)}) must match input_size ({input_size})")
+
+        if architecture_type == 'type1':
+            self.network = self._build_type1()
+        elif architecture_type == 'type2':
+            self.network = self._build_type2()
+        else:
+            raise ValueError("architecture_type must be either 'type1' or 'type2'")
+
+        self.init_weights(init_method)
+
+    def _build_type1(self):
+        layers = nn.ModuleList()
+
+        # Input layer
+        layers.append(MonoDense(
+            in_features=self.input_size,
+            units=self.hidden_sizes[0],
+            activation=self.activation,
+            monotonicity_indicator=self.monotonicity_indicator
         ))
 
         # Hidden layers
-        for i in range(1, len(hidden_sizes)):
-            self.layers.append(MonoDense(
-                in_features=hidden_sizes[i - 1],
-                units=hidden_sizes[i],
-                activation=activation,
-                monotonicity_indicator=1  # Always increasing for hidden layers
+        for i in range(1, len(self.hidden_sizes)):
+            layers.append(MonoDense(
+                in_features=self.hidden_sizes[i - 1],
+                units=self.hidden_sizes[i],
+                activation=self.activation,
+                monotonicity_indicator=1
             ))
 
         # Output layer
-        self.layers.append(MonoDense(
-            in_features=hidden_sizes[-1],
-            units=output_size,
-            activation=None,  # Linear activation
-            monotonicity_indicator=0  # Default to no monotonicity enforcement for output layer
+        layers.append(MonoDense(
+            in_features=self.hidden_sizes[-1],
+            units=self.output_size,
+            activation=None,
+            monotonicity_indicator=1
         ))
 
-    def forward(self, x):
-        for layer in self.layers:
-            x = layer(x)
+        return layers
+
+    def _build_type2(self):
+        mono_layers = nn.ModuleList()
+        non_mono_features = []
+
+        for i, indicator in enumerate(self.monotonicity_indicator):
+            if indicator != 0:
+                mono_layers.append(MonoDense(
+                    in_features=1,
+                    units=self.hidden_sizes[0],
+                    activation=self.activation,
+                    monotonicity_indicator=indicator
+                ))
+            else:
+                non_mono_features.append(i)
+
+        non_mono_input_size = len(non_mono_features)
+        if non_mono_input_size > 0:
+            non_mono_mlp = StandardMLP(
+                input_size=non_mono_input_size,
+                hidden_sizes=[self.hidden_sizes[0]],
+                output_size=self.hidden_sizes[0],
+                activation=self._get_activation(self.activation),
+                dropout_rate=self.dropout_rate
+            )
+        else:
+            non_mono_mlp = None
+
+        main_input_size = self.hidden_sizes[0] * (len(mono_layers) + (1 if non_mono_mlp else 0))
+        main_network = nn.ModuleList([
+            MonoDense(
+                in_features=main_input_size if i == 0 else self.hidden_sizes[i - 1],
+                units=size,
+                activation=self.activation if i < len(self.hidden_sizes) - 1 else None,
+                monotonicity_indicator=1
+            ) for i, size in enumerate(self.hidden_sizes[1:] + [self.output_size])
+        ])
+
+        return nn.ModuleDict({
+            'mono_layers': mono_layers,
+            'non_mono_mlp': non_mono_mlp,
+            'main_network': main_network,
+            'non_mono_indices': non_mono_features
+        })
+
+    def _get_activation(self, activation):
+        if activation == 'elu':
+            return nn.ELU()
+        elif activation == 'relu':
+            return nn.ReLU()
+        else:
+            raise ValueError(f"Unsupported activation: {activation}")
+
+    def init_weights(self, method):
+        for module in self.modules():
+            if isinstance(module, (nn.Linear, MonoDense)):
+                for params in module.parameters():
+                    if len(params.shape) > 1:
+                        init_weights(params, method=method)
+                    else:
+                        init_weights(params, method='zeros')
+
+    def forward(self, x: torch.Tensor):
+        if self.architecture_type == 'type1':
+            for layer in self.network:
+                x = layer(x)
+        elif self.architecture_type == 'type2':
+            mono_outputs = [layer(x[:, i].unsqueeze(1)) for i, layer in enumerate(self.network['mono_layers'])]
+
+            if self.network['non_mono_mlp']:
+                non_mono_input = x[:, self.network['non_mono_indices']]
+                non_mono_output = self.network['non_mono_mlp'](non_mono_input)
+                all_outputs = mono_outputs + [non_mono_output]
+            else:
+                all_outputs = mono_outputs
+
+            x = torch.cat(all_outputs, dim=-1)
+
+            for layer in self.network['main_network']:
+                x = layer(x)
+
         if self.final_activation:
             x = self.final_activation(x)
+
         return x
 
+    def count_parameters(self):
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)

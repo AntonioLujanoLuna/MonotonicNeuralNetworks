@@ -132,9 +132,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
         config = {
             "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
             "lattice_sizes": [trial.suggest_int(f"lattice_size_{i}", 2, 5) for i in range(len(monotonic_indices))],
-            "mlp_neurons": [trial.suggest_int(f"mlp_neurons_{i}", 8, 64) for i in range(2)],  # 2-layer MLP
-            "dropout_rate": trial.suggest_float("dropout_rate", 0.0, 0.5),
-            "init_method": trial.suggest_categorical("init_method", ["xavier_uniform", "xavier_normal", "kaiming_uniform", "kaiming_normal"]),
+            "mlp_neurons": [trial.suggest_categorical("mlp_neurons_{i}", [8, 16, 32, 64]) for i in range(2)],  # 2-layer MLP
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
             "epochs": 100,
         }
@@ -167,8 +165,6 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
             "lr": 0.001,
             "lattice_sizes": [3] * len(monotonic_indices),
             "mlp_neurons": [32, 32],
-            "dropout_rate": 0.1,
-            "init_method": "xavier_uniform",
             "batch_size": 32,
             "epochs": 100
         }

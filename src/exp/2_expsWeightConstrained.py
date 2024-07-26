@@ -15,7 +15,8 @@ from src.WeightsConstrainedMLP import WeightsConstrainedMLP
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
-from src.utils import monotonicity_check, get_monotonic_indices, write_results_to_csv, count_parameters
+from src.utils import monotonicity_check, get_monotonic_indices, write_results_to_csv, count_parameters, \
+    generate_layer_combinations
 
 GLOBAL_SEED = 42
 
@@ -108,11 +109,11 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
               val_dataset: torch.utils.data.Subset, task_type: str) -> float:
+    hidden_sizes_options = generate_layer_combinations(min_layers=2, max_layers=2, units=[8, 16, 32, 64])
     config = {
         "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
-        "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes",
-                                                                   ["[8, 8]", "[8, 16]", "[16, 8]", "[16, 16]",
-                                                                    "[16, 32]", "[32, 32]", "[32, 64]", "[64, 64]"])),
+        "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes_options)),
+
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
         "epochs": 100,
     }

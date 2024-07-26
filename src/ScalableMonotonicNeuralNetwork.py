@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import List, Tuple, Literal
+from typing import Tuple, List
 from src.utils import init_weights
 
 class ScalableMonotonicNeuralNetwork(nn.Module):
@@ -54,24 +54,23 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
 
     def __init__(self,
                  input_size: int,
-                 mono_size: int,
-                 mono_feature,
+                 mono_feature: List[int],
                  exp_unit_size: Tuple = (),
                  relu_unit_size: Tuple = (),
                  conf_unit_size: Tuple = ()):
         super(ScalableMonotonicNeuralNetwork, self).__init__()
 
         self.input_size = input_size
-        self.mono_size = mono_size
-        self.non_mono_size = input_size - mono_size
         self.mono_feature = mono_feature
+        self.mono_size = len(mono_feature)
+        self.non_mono_size = input_size - self.mono_size
         self.non_mono_feature = list(set(range(input_size)) - set(mono_feature))
         self.exp_unit_size = exp_unit_size
         self.relu_unit_size = relu_unit_size
         self.conf_unit_size = conf_unit_size
 
         self.exp_units = nn.ModuleList([
-            self.ExpUnit(mono_size if i == 0 else exp_unit_size[i - 1] + conf_unit_size[i - 1], exp_unit_size[i])
+            self.ExpUnit(self.mono_size if i == 0 else exp_unit_size[i - 1] + conf_unit_size[i - 1], exp_unit_size[i])
             for i in range(len(exp_unit_size))
         ])
 
@@ -85,7 +84,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             for i in range(len(relu_unit_size))
         ])
 
-        self.fclayer = self.FCLayer(
+        self.fc_layer = self.FCLayer(
             exp_unit_size[-1] + conf_unit_size[-1] + relu_unit_size[-1], 1
         )
 
@@ -101,7 +100,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             exp_output = self.exp_units[i](torch.cat([exp_output, conf_output], dim=1))
             relu_output = self.relu_units[i](relu_output)
 
-        out = self.fclayer(torch.cat([exp_output, relu_output], dim=1))
+        out = self.fc_layer(torch.cat([conf_output, exp_output, relu_output], dim=1))
         return out
 
     def count_parameters(self) -> int:
@@ -111,20 +110,4 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
         Returns:
             int: Total number of trainable parameters.
         """
-        total_params = 0
-
-        # Count parameters in hidden layers
-        for i in range(len(self.exp_units)):
-            # ExpUnit
-            total_params += self.exp_units[i].weight.numel() + self.exp_units[i].bias.numel()
-
-            # ConfluenceUnit
-            total_params += self.conf_units[i].weight.numel() + self.conf_units[i].bias.numel()
-
-            # ReLUUnit
-            total_params += self.relu_units[i].weight.numel() + self.relu_units[i].bias.numel()
-
-        # Count parameters in the output layer
-        total_params += self.fc_layer.weight.numel() + self.fc_layer.bias.numel()
-
-        return total_params
+        return sum(p.numel() for p in self.parameters() if p.requires_grad)

@@ -3,6 +3,7 @@ import torch
 from torch import nn
 import csv
 import json
+import itertools
 
 def monotonicity_check(
         model: nn.Module,
@@ -176,3 +177,21 @@ def count_parameters(module: nn.Module) -> int:
         int: The number of trainable parameters.
     """
     return sum(p.numel() for p in module.parameters() if p.requires_grad)
+
+def generate_layer_combinations(min_layers=1, max_layers=3, units=[8, 16, 32, 64]):
+    """
+    Generate all possible layer combinations for a feedforward neural network.
+
+    Arguments
+        min_layers (int): Minimum number of layers.
+        max_layers (int): Maximum number of layers.
+        units (List[int]): List of units per layer.
+
+    Returns
+        List[str]: List of layer combinations
+    """
+    combinations = []
+    for n_layers in range(min_layers, max_layers + 1):
+        for combo in itertools.product(units, repeat=n_layers):
+            combinations.append(list(combo))
+    return [str(combo) for combo in combinations]
