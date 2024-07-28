@@ -135,16 +135,13 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     def objective(trial):
+        hidden_sizes = generate_layer_combinations(min_layers=2, max_layers=2, units=[8, 16, 32, 64])
         config = {
             "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
-            "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes",
-                                                                       generate_layer_combinations(min_layers=2,
-                                                                                                   max_layers=2,
-                                                                                                   units=[8, 16, 32,
-                                                                                                          64]))),
+            "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes)),
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
             "epochs": 100,
-            "monotonicity_weight": trial.suggest_float("monotonicity_weight", 0.1, 10.0, log=True),
+            "monotonicity_weight": 1.0,
         }
 
         g = torch.Generator()
