@@ -1,3 +1,5 @@
+# Scalable Monotonic Neural Network (SMNN) implementation.
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -70,7 +72,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
         self.conf_unit_size = conf_unit_size
 
         self.exp_units = nn.ModuleList([
-            self.ExpUnit(self.mono_size if i == 0 else exp_unit_size[i - 1] + conf_unit_size[i - 1], exp_unit_size[i])
+            self.ExpUnit(self.mono_size if i == 0 else exp_unit_size[i - 1], exp_unit_size[i])
             for i in range(len(exp_unit_size))
         ])
 
@@ -81,26 +83,40 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
 
         self.conf_units = nn.ModuleList([
             self.ConfluenceUnit(self.non_mono_size if i == 0 else relu_unit_size[i - 1], conf_unit_size[i])
-            for i in range(len(relu_unit_size))
+            for i in range(len(conf_unit_size))
         ])
 
         self.fc_layer = self.FCLayer(
-            exp_unit_size[-1] + conf_unit_size[-1] + relu_unit_size[-1], 1
+            exp_unit_size[-1] + relu_unit_size[-1], 1
         )
 
     def forward(self, x):
+        """
+        Forward pass of the network.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, input_size).
+
+        Returns:
+            torch.Tensor: Output tensor of shape (batch_size, 1).
+
+        """
         x_mono = x[:, self.mono_feature]
         x_non_mono = x[:, self.non_mono_feature]
 
-        exp_output = x_mono
-        relu_output = x_non_mono
-
         for i in range(len(self.exp_unit_size)):
-            conf_output = self.conf_units[i](relu_output)
-            exp_output = self.exp_units[i](torch.cat([exp_output, conf_output], dim=1))
-            relu_output = self.relu_units[i](relu_output)
+            if i == 0:
+                exp_output = self.exp_units[i](x_mono)
+                conf_output = self.conf_units[i](x_non_mono)
+                relu_output = self.relu_units[i](x_non_mono)
+                exp_output = torch.cat([exp_output, conf_output], dim=1)
+            else:
+                exp_output = self.exp_units[i](exp_output)
+                conf_output = self.conf_units[i](relu_output)
+                relu_output = self.relu_units[i](relu_output)
+                exp_output = torch.cat([exp_output, conf_output], dim=1)
 
-        out = self.fc_layer(torch.cat([conf_output, exp_output, relu_output], dim=1))
+        out = self.fc_layer(torch.cat([exp_output, relu_output], dim=1))
         return out
 
     def count_parameters(self) -> int:
