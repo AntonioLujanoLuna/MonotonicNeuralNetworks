@@ -347,7 +347,8 @@ def main():
             "Best Configuration",
             "Mono Random Mean", "Mono Random Std",
             "Mono Train Mean", "Mono Train Std",
-            "Mono Val Mean", "Mono Val Std"
+            "Mono Val Mean", "Mono Val Std",
+            "NumofParameters"
         ])
 
     for data_loader in dataset_loaders:

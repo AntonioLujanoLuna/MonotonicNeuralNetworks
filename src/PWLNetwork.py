@@ -84,36 +84,25 @@ class PWLNetwork(nn.Module):
         monotonic_loss = self.compute_monotonic_loss(x)
         return empirical_loss + self.monotonicity_weight * monotonic_loss
 
-def train_pwl_network(model: PWLNetwork, train_loader: DataLoader,
-                      optimizer: torch.optim.Optimizer, loss_fn: nn.Module, num_epochs: int):
-    """
-    Train the PWLNetwork.
 
-    Args:
-        model (PWLNetwork): The PWLNetwork model to train.
-        train_loader (torch.utils.data.DataLoader): DataLoader for training data.
-        optimizer (torch.optim.Optimizer): Optimizer for updating model parameters.
-        loss_fn (nn.Module): Loss function for empirical loss.
-        num_epochs (int): Number of epochs to train for.
-    """
-    model.train()
-    for epoch in range(num_epochs):
-        total_loss = 0
-        for batch_x, batch_y in train_loader:
-            optimizer.zero_grad()
-            loss = model.compute_loss(batch_x, batch_y, loss_fn)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(train_loader):.4f}")
+def custom_loss(output: torch.Tensor, target: torch.Tensor, model: StandardMLP, inputs: torch.Tensor, task_type: str,
+                monotonic_indices: List[int], monotonicity_weight: float) -> torch.Tensor:
+    if task_type == "regression":
+        empirical_loss = nn.MSELoss()(output, target)
+    else:
+        empirical_loss = nn.BCELoss()(output, target)
 
-# Example usage:
-# input_size = 10
-# hidden_sizes = [64, 32]
-# output_size = 1
-# monotonic_indices = [0, 2]  # Features 0 and 2 are monotonically increasing
-# model = PWLNetwork(input_size, hidden_sizes, output_size, monotonic_indices)
-# optimizer = torch.optim.Adam(model.parameters())
-# loss_fn = nn.MSELoss()
-# train_loader = torch.utils.data.DataLoader(your_dataset, batch_size=32, shuffle=True)
-# train_pwl_network(model, train_loader, optimizer, loss_fn, num_epochs=100)
+    monotonic_loss = compute_monotonic_loss(model, inputs, monotonic_indices)
+    return empirical_loss + monotonicity_weight * monotonic_loss
+
+
+def compute_monotonic_loss(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int]) -> torch.Tensor:
+    monotonic_inputs = x[:, monotonic_indices]
+    monotonic_inputs.requires_grad_(True)
+    output = model(x)
+    monotonic_gradients = autograd.grad(outputs=output, inputs=monotonic_inputs,
+                                        grad_outputs=torch.ones_like(output),
+                                        create_graph=True, retain_graph=True)[0]
+    pwl = torch.sum(torch.max(torch.zeros_like(monotonic_gradients), -monotonic_gradients))
+    return pwl
+

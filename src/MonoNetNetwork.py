@@ -1,10 +1,9 @@
+# My MonoNet implementation
 # InterpretableLayer and MonotonicLayer from https://github.com/phineasng/mononet, slightly modified
 
 import torch
 import torch.nn as nn
 from torch.nn.parameter import Parameter
-from torch.nn import init
-import math
 from typing import List, Literal
 
 from src.utils import init_weights
@@ -17,7 +16,6 @@ class InterpretableLayer(nn.Module):
     Attributes:
         in_features (int): Number of input features.
         weight (Parameter): Learnable weight parameter.
-        softsign (nn.Softsign): Softsign activation function.
     """
 
     def __init__(self, in_features: int) -> None:
@@ -30,12 +28,7 @@ class InterpretableLayer(nn.Module):
         super(InterpretableLayer, self).__init__()
         self.in_features = in_features
         self.weight = Parameter(torch.Tensor(in_features))
-        self.softsign = nn.Softsign()
-        self.reset_parameters()
 
-    def reset_parameters(self) -> None:
-        """Initialize the weight parameter."""
-        init.normal_(self.weight, mean=0)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
@@ -58,11 +51,11 @@ class MonotonicLayer(nn.Module):
         out_features (int): Number of output features.
         weight (Parameter): Learnable weight parameter.
         bias (Parameter): Learnable bias parameter.
-        fn (str): Name of the positive function to use.
-        pos_fn (callable): The positive function to apply to weights.
+        transform (str): Name of the positive function to use.
+        pos_transform (callable): The positive function to apply to weights.
     """
 
-    def __init__(self, in_features: int, out_features: int, bias: bool = True, fn: str = 'exp') -> None:
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, transform: str = 'exp') -> None:
         """
         Initialize the MonotonicLayer.
 
@@ -70,7 +63,7 @@ class MonotonicLayer(nn.Module):
             in_features (int): Number of input features.
             out_features (int): Number of output features.
             bias (bool): Whether to use a bias term.
-            fn (str): Name of the positive function to use ('exp', 'square', 'abs', 'sigmoid', or 'tanh_p1').
+            transform (str): Name of the positive function to use ('exp', 'square', 'abs', 'sigmoid', or 'tanh_p1').
         """
         super(MonotonicLayer, self).__init__()
         self.in_features = in_features
@@ -80,31 +73,22 @@ class MonotonicLayer(nn.Module):
             self.bias = Parameter(torch.Tensor(out_features))
         else:
             self.register_parameter('bias', None)
-        self.fn = fn
-        self.pos_fn = self._get_pos_fn(fn)
-        self.reset_parameters()
+        self.transform = transform
+        self.pos_transform = self._get_pos_transform(transform)
 
-    def _get_pos_fn(self, fn: str) -> callable:
+    def _get_pos_transform(self, transform: str) -> callable:
         """Get the positive function based on the provided name."""
-        if fn == 'exp':
+        if transform == 'exp':
             return torch.exp
-        elif fn == 'square':
+        elif transform == 'square':
             return torch.square
-        elif fn == 'abs':
+        elif transform == 'abs':
             return torch.abs
-        elif fn == 'sigmoid':
+        elif transform == 'sigmoid':
             return torch.sigmoid
         else:
-            self.fn = 'tanh_p1'
+            self.transform = 'tanh_p1'
             return lambda x: torch.tanh(x) + 1.
-
-    def reset_parameters(self) -> None:
-        """Initialize the weight and bias parameters."""
-        n_in = self.in_features
-        mean = math.log(1./n_in) if self.fn == 'exp' else 0
-        init.normal_(self.weight, mean=mean)
-        if self.bias is not None:
-            init.uniform_(self.bias, -1./n_in, 1./n_in)
 
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         """
@@ -116,7 +100,7 @@ class MonotonicLayer(nn.Module):
         Returns:
             torch.Tensor: Output tensor.
         """
-        ret = torch.matmul(input, torch.transpose(self.pos_fn(self.weight), 0, 1))
+        ret = torch.matmul(input, torch.transpose(self.pos_transform(self.weight), 0, 1))
         if self.bias is not None:
             ret = ret + self.bias
         return ret
@@ -159,9 +143,13 @@ class MonoNet(nn.Module):
         self.monotonic_block = self._build_monotonic_block(interpretable_size, monotonic_sizes, num_classes)
         self.output = InterpretableLayer(num_classes)
         self.activation = activation
+        self.init_method = init_method
+        self._init_weights()
+
+    def _init_weights(self) -> None:
         for params in self.parameters():
             if len(params.shape) > 1:
-                init_weights(params, method=init_method)
+                init_weights(params, method=self.init_method)
             else:
                 init_weights(params, method='zeros')
 

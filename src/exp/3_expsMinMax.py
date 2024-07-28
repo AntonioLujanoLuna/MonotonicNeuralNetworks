@@ -389,7 +389,8 @@ def main():
             "Best Configuration",
             "Mono Random Mean", "Mono Random Std",
             "Mono Train Mean", "Mono Train Std",
-            "Mono Val Mean", "Mono Val Std"
+            "Mono Val Mean", "Mono Val Std",
+            "NumofParameters"
         ])
 
     for model_type in model_types:
