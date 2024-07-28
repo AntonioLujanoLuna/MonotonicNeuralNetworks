@@ -149,7 +149,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
             "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes)),
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
             "epochs": 100,
-            "monotonicity_weight": 1.0,
+            "monotonicity_weight": 1e4,
             "regularization_type": "random",
             "regularization_budget": 1024,
         }

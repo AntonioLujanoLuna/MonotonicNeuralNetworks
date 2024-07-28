@@ -10,17 +10,57 @@ from schedulefree import AdamWScheduleFree
 from src.MLP import StandardMLP
 
 
-class CertifiedMonotonicNetwork(StandardMLP):
+class CertifiedMonotonicNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int, monotonic_indices: List[int],
-                 monotonicity_weight: float = 1.0, activation: nn.Module = nn.ReLU(),
+                 bottleneck_size: int, monotonicity_weight: float = 1.0, activation: nn.Module = nn.ReLU(),
                  output_activation: nn.Module = nn.Identity(), dropout_rate: float = 0.0,
                  regularization_type: str = 'random', b: float = 0.2,
-                 init_method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'):
-        super().__init__(input_size, hidden_sizes, output_size, activation, output_activation, dropout_rate, init_method)
+                 init_method: Literal[
+                     'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'):
+        super().__init__()
         self.monotonicity_weight = monotonicity_weight
         self.regularization_type = regularization_type
         self.b = b
         self.n_monotonic_features = len(monotonic_indices)
+        self.n_non_monotonic_features = input_size - self.n_monotonic_features
+
+        # Create a mask for monotonic and non-monotonic features
+        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool)
+        self.monotonic_mask[monotonic_indices] = True
+
+        # Bottleneck for non-monotonic features
+        self.non_monotonic_bottleneck = nn.Sequential(
+            nn.Linear(self.n_non_monotonic_features, bottleneck_size),
+            activation
+        )
+
+        # Adjust the input size of the main network to account for the bottleneck
+        adjusted_input_size = self.n_monotonic_features + bottleneck_size
+
+        # Main network
+        self.main_network = StandardMLP(
+            input_size=adjusted_input_size,
+            hidden_sizes=hidden_sizes,
+            output_size=output_size,
+            activation=activation,
+            output_activation=output_activation,
+            dropout_rate=dropout_rate,
+            init_method=init_method
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Split input into monotonic and non-monotonic features
+        monotonic_features = x[:, self.monotonic_mask]
+        non_monotonic_features = x[:, ~self.monotonic_mask]
+
+        # Apply bottleneck to non-monotonic features
+        bottleneck_output = self.non_monotonic_bottleneck(non_monotonic_features)
+
+        # Concatenate monotonic features and bottleneck output
+        combined_features = torch.cat([monotonic_features, bottleneck_output], dim=1)
+
+        # Pass through main network
+        return self.main_network(combined_features)
 
 
 def certify_grad_with_gurobi(first_layer, second_layer, mono_feature_num, direction=None):
@@ -84,17 +124,17 @@ def certify_grad_with_gurobi(first_layer, second_layer, mono_feature_num, direct
 
 def certify_monotonicity(model: CertifiedMonotonicNetwork):
     mono_flag = True
-    for i in range(0, len(model.network) - 2, 2):  # Check pairs of linear layers
-        first_layer = model.network[i]
-        second_layer = model.network[i + 2]
+    for i in range(0, len(model.main_network.layers) - 1):
+        first_layer = model.main_network.layers[i]
+        second_layer = model.main_network.layers[i + 1]
         mono_flag = certify_grad_with_gurobi(first_layer, second_layer, model.n_monotonic_features)
         if not mono_flag:
             break
     return mono_flag
 
-def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-                       task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                       regularization_type: str = 'mixup', regularization_budget: int = 1000) -> torch.Tensor:
+def compute_mixup_loss(model: CertifiedMonotonicNetwork, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
+                       task_type: str, monotonicity_weight: float = 1.0,
+                       regularization_budget: int = 1000) -> torch.Tensor:
     device = x.device
 
     # Compute empirical loss
@@ -109,31 +149,19 @@ def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.
     optimizer.train()
 
     # Generate regularization points
-    if regularization_type == 'random':
-        regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
-    elif regularization_type == 'train':
-        if regularization_budget > x.shape[0]:
-            regularization_points = x.repeat(regularization_budget // x.shape[0] + 1, 1)[:regularization_budget]
-        else:
-            regularization_points = x[:regularization_budget]
-    else:  # mixup
-        random_data = torch.rand_like(x)
-        combined_data = torch.cat([x, random_data], dim=0)
-        pairs = get_pairs(combined_data, max_n_pairs=regularization_budget)
-        regularization_points = interpolate_pairs(pairs)
+    regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
 
-    # Separate monotonic and non-monotonic features
-    monotonic_mask = torch.zeros(regularization_points.shape[1], dtype=torch.bool)
-    monotonic_mask[monotonic_indices] = True
-    data_monotonic = regularization_points[:, monotonic_mask]
-    data_non_monotonic = regularization_points[:, ~monotonic_mask]
+    data_monotonic = regularization_points[:, model.monotonic_mask]
+    data_non_monotonic = regularization_points[:, ~model.monotonic_mask]
 
     data_monotonic.requires_grad_(True)
 
     def closure():
         optimizer.zero_grad()
         with torch.set_grad_enabled(True):
-            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
+            bottleneck_output = model.non_monotonic_bottleneck(data_non_monotonic)
+            combined_features = torch.cat([data_monotonic, bottleneck_output], dim=1)
+            outputs = model.main_network(combined_features)
             loss = torch.sum(outputs)
         loss.backward()
         return loss
@@ -150,22 +178,3 @@ def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.
     regularization = torch.mean(torch.sum(grad_penalty, dim=1))
 
     return empirical_loss + monotonicity_weight * regularization
-
-def get_pairs(data, max_n_pairs):
-    all_pairs = list(combinations(range(len(data)), 2))
-    if len(all_pairs) > max_n_pairs:
-        all_pairs = random.sample(all_pairs, max_n_pairs)
-    all_pairs = torch.LongTensor(all_pairs).to(data.device)
-
-    pairs_left = torch.index_select(data, 0, all_pairs[:, 0])
-    pairs_right = torch.index_select(data, 0, all_pairs[:, 1])
-
-    return pairs_left, pairs_right
-
-def interpolate_pairs(pairs, interpolation_range=0.5):
-    pairs_left, pairs_right = pairs
-    lower_bound = 0.5 - interpolation_range
-    upper_bound = 0.5 + interpolation_range
-    interpolation_factors = torch.rand(len(pairs_left), 1, device=pairs_left.device) * (upper_bound - lower_bound) + lower_bound
-
-    return interpolation_factors * pairs_left + (1 - interpolation_factors) * pairs_right
