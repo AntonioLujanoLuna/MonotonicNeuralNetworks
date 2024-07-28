@@ -91,7 +91,6 @@ def train_model(model: StandardMLP, optimizer: AdamWScheduleFree, train_loader: 
     return best_val_loss
 
 
-# Keep the original evaluate_model function
 @torch.no_grad()
 def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: DataLoader,
                    task_type: str, device: torch.device) -> float:
@@ -156,7 +155,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
         # Train the model using custom loss
         _ = train_model(model, optimizer, train_loader, val_loader, config, task_type, device, monotonic_indices)
 
-        # Evaluate using MSE/BCE
+        # Evaluate using MSE or error rate
         val_loss = evaluate_model(model, optimizer, val_loader, task_type, device)
 
         return val_loss

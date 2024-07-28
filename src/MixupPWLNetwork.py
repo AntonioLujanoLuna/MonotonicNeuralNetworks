@@ -97,27 +97,87 @@ class MixupRegularizerNetwork(nn.Module):
         return empirical_loss + self.monotonicity_weight * regularization_loss
 
 
-def train_mixup_regularizer_network(model: MixupRegularizerNetwork, train_loader: DataLoader,
-                                    optimizer: torch.optim.Optimizer, loss_fn: nn.Module, num_epochs: int,
-                                    regularization_budget: int):
-    model.train()
-    for epoch in range(num_epochs):
-        total_loss = 0
-        for batch_x, batch_y in train_loader:
-            optimizer.zero_grad()
-            loss = model.compute_loss(batch_x, batch_y, loss_fn, regularization_budget)
-            loss.backward()
-            optimizer.step()
-            total_loss += loss.item()
-        print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {total_loss / len(train_loader):.4f}")
+import torch
+import torch.nn as nn
+from typing import List
+import random
+from itertools import combinations
+from schedulefree import AdamWScheduleFree
 
-# Example usage:
-# input_size = 10
-# hidden_sizes = [64, 32]
-# output_size = 1
-# monotonic_indices = [0, 2]  # Features 0 and 2 are monotonically increasing
-# model = MixupRegularizerNetwork(input_size, hidden_sizes, output_size, monotonic_indices, regularization_type='mixup')
-# optimizer = torch.optim.Adam(model.parameters())
-# loss_fn = nn.MSELoss()
-# train_loader = torch.utils.data.DataLoader(your_dataset, batch_size=32, shuffle=True)
-# train_mixup_regularizer_network(model, train_loader, optimizer, loss_fn, num_epochs=100, regularization_budget=1000)
+def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
+                       task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
+                       regularization_type: str = 'mixup', regularization_budget: int = 1000) -> torch.Tensor:
+    device = x.device
+
+    # Compute empirical loss
+    y_pred = model(x)
+    if task_type == "regression":
+        empirical_loss = nn.MSELoss()(y_pred, y)
+    else:
+        empirical_loss = nn.BCELoss()(y_pred, y)
+
+    # Prepare for regularization
+    model.train()
+    optimizer.train()
+
+    # Generate regularization points
+    if regularization_type == 'random':
+        regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
+    elif regularization_type == 'train':
+        if regularization_budget > x.shape[0]:
+            regularization_points = x.repeat(regularization_budget // x.shape[0] + 1, 1)[:regularization_budget]
+        else:
+            regularization_points = x[:regularization_budget]
+    else:  # mixup
+        random_data = torch.rand_like(x)
+        combined_data = torch.cat([x, random_data], dim=0)
+        pairs = get_pairs(combined_data, max_n_pairs=regularization_budget)
+        regularization_points = interpolate_pairs(pairs)
+
+    # Separate monotonic and non-monotonic features
+    monotonic_mask = torch.zeros(regularization_points.shape[1], dtype=torch.bool)
+    monotonic_mask[monotonic_indices] = True
+    data_monotonic = regularization_points[:, monotonic_mask]
+    data_non_monotonic = regularization_points[:, ~monotonic_mask]
+
+    data_monotonic.requires_grad_(True)
+
+    def closure():
+        optimizer.zero_grad()
+        with torch.set_grad_enabled(True):
+            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
+            loss = torch.sum(outputs)
+        loss.backward()
+        return loss
+
+    closure()
+    grad_wrt_monotonic_input = data_monotonic.grad
+
+    if grad_wrt_monotonic_input is None:
+        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
+        return empirical_loss
+
+    # Compute regularization
+    grad_penalty = torch.relu(-grad_wrt_monotonic_input) ** 2
+    regularization = torch.mean(torch.sum(grad_penalty, dim=1))
+
+    return empirical_loss + monotonicity_weight * regularization
+
+def get_pairs(data, max_n_pairs):
+    all_pairs = list(combinations(range(len(data)), 2))
+    if len(all_pairs) > max_n_pairs:
+        all_pairs = random.sample(all_pairs, max_n_pairs)
+    all_pairs = torch.LongTensor(all_pairs).to(data.device)
+
+    pairs_left = torch.index_select(data, 0, all_pairs[:, 0])
+    pairs_right = torch.index_select(data, 0, all_pairs[:, 1])
+
+    return pairs_left, pairs_right
+
+def interpolate_pairs(pairs, interpolation_range=0.5):
+    pairs_left, pairs_right = pairs
+    lower_bound = 0.5 - interpolation_range
+    upper_bound = 0.5 + interpolation_range
+    interpolation_factors = torch.rand(len(pairs_left), 1, device=pairs_left.device) * (upper_bound - lower_bound) + lower_bound
+
+    return interpolation_factors * pairs_left + (1 - interpolation_factors) * pairs_right
