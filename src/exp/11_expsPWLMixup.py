@@ -307,7 +307,7 @@ def main():
     ]
 
     sample_size = 30000
-    results_file = "expsPWL.csv"
+    results_file = "expsPWLMixup.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:

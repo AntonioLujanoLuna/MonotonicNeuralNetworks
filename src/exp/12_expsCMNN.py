@@ -11,7 +11,7 @@ from sklearn.metrics import mean_squared_error, accuracy_score
 from typing import Callable, Tuple, List, Dict, Union
 import optuna
 from schedulefree import AdamWScheduleFree
-from src.CertifiedMonotonicNetworks import CertifiedMonotonicNetwork, certify_monotonicity
+from src.CertifiedMonotonicNetworks import CertifiedMonotonicNetwork
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
@@ -89,11 +89,6 @@ def train_model(model: CertifiedMonotonicNetwork, optimizer: AdamWScheduleFree, 
 
         if patience_counter >= patience:
             break
-
-        # Check for monotonicity and adjust weight if necessary
-        if not certify_monotonicity(model):
-            model.monotonicity_weight *= 10
-            print(f"Increased monotonicity weight to {model.monotonicity_weight}")
 
     model.load_state_dict(best_model_state)
     return best_val_loss
@@ -183,10 +178,11 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
 
 # Modified cross_validate function
 def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: str, monotonic_indices: List[int],
-                   n_splits: int = 5) -> Tuple[List[float], Dict, int]:
+                   n_splits: int = 5) -> Tuple[List[float], Dict, int, List[bool]]:
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
+    is_certified_monotonic_list = []
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
@@ -201,7 +197,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], task_type, monotonic_indices,GLOBAL_SEED + fold).to(device)
+        model = create_model(best_config, X.shape[1], task_type, monotonic_indices, GLOBAL_SEED + fold).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device, monotonic_indices)
@@ -213,7 +209,11 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         for key in mono_metrics:
             mono_metrics[key].append(fold_mono_metrics[key])
 
-    return scores, mono_metrics, n_params
+        # Certify monotonicity after training
+        is_certified_monotonic = certify_monotonicity(model)
+        is_certified_monotonic_list.append(is_certified_monotonic)
+
+    return scores, mono_metrics, n_params, is_certified_monotonic_list
 
 
 def evaluate_monotonicity(model: CertifiedMonotonicNetwork, optimizer: AdamWScheduleFree, train_loader: DataLoader,
@@ -250,9 +250,10 @@ def evaluate_monotonicity(model: CertifiedMonotonicNetwork, optimizer: AdamWSche
 
 def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray,
                         best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 5) -> Tuple[
-    List[float], Dict, int]:
+    List[float], Dict, int, List[bool]]:
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
+    is_certified_monotonic_list = []
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for i in range(n_repeats):
@@ -268,7 +269,7 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
+        model = create_model(best_config, X_train.shape[1], task_type, monotonic_indices, GLOBAL_SEED + i).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device, monotonic_indices)
@@ -280,10 +281,14 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         for key in mono_metrics:
             mono_metrics[key].append(fold_mono_metrics[key])
 
-    return scores, mono_metrics, n_params
+        # Certify monotonicity after training
+        is_certified_monotonic = certify_monotonicity(model)
+        is_certified_monotonic_list.append(is_certified_monotonic)
+
+    return scores, mono_metrics, n_params, is_certified_monotonic_list
 
 
-def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[List[float], Dict, Dict, int]:
+def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[List[float], Dict, Dict, int, List[bool]]:
     print(f"\nProcessing dataset: {data_loader.__name__}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
@@ -292,17 +297,17 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
 
     if data_loader == load_blog_feedback:
-        scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, best_config, task_type, monotonic_indices)
+        scores, mono_metrics, n_params, is_certified_monotonic_list = repeated_train_test(X, y, X_test, y_test, best_config, task_type, monotonic_indices)
     else:
         X = np.vstack((X, X_test))
         y = np.concatenate((y, y_test))
-        scores, mono_metrics, n_params = cross_validate(X, y, best_config, task_type, monotonic_indices)
+        scores, mono_metrics, n_params, is_certified_monotonic_list = cross_validate(X, y, best_config, task_type, monotonic_indices)
 
     avg_mono_metrics = {
         key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
     }
 
-    return scores, best_config, avg_mono_metrics, n_params
+    return scores, best_config, avg_mono_metrics, n_params, is_certified_monotonic_list
 
 
 def main():
@@ -325,24 +330,27 @@ def main():
             "Mono Random Mean", "Mono Random Std",
             "Mono Train Mean", "Mono Train Std",
             "Mono Val Mean", "Mono Val Std",
-            "NumofParameters"
+            "NumofParameters",
+            "CertifiedMonotonicRate"
         ])
 
     for data_loader in dataset_loaders:
         task_type = get_task_type(data_loader)
-        scores, best_config, mono_metrics, n_params = process_dataset(data_loader, sample_size)
+        scores, best_config, mono_metrics, n_params, is_certified_monotonic_list = process_dataset(data_loader, sample_size)
         metric_name = "RMSE" if task_type == "regression" else "Error Rate"
+
+        certified_monotonic_rate = sum(is_certified_monotonic_list) / len(is_certified_monotonic_list)
 
         # Write results to CSV file
         write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
-                             np.mean(scores), np.std(scores), best_config, mono_metrics, n_params)
-
+                             np.mean(scores), np.std(scores), best_config, mono_metrics, n_params, certified_monotonic_rate)
 
         # Print results to console (optional, you can remove this if you only want file output)
         print(f"\nResults for {data_loader.__name__}:")
         print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
         print(f"Best configuration: {best_config}")
         print(f"Number of parameters: {n_params}")
+        print(f"Certified Monotonic Rate: {certified_monotonic_rate:.2f}")
         print("Monotonicity violation rates:")
         for key, (mean, std) in mono_metrics.items():
             print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")

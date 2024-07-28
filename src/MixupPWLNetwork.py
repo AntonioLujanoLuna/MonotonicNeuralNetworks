@@ -120,19 +120,10 @@ def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.
     model.train()
     optimizer.train()
 
-    # Generate regularization points
-    if regularization_type == 'random':
-        regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
-    elif regularization_type == 'train':
-        if regularization_budget > x.shape[0]:
-            regularization_points = x.repeat(regularization_budget // x.shape[0] + 1, 1)[:regularization_budget]
-        else:
-            regularization_points = x[:regularization_budget]
-    else:  # mixup
-        random_data = torch.rand_like(x)
-        combined_data = torch.cat([x, random_data], dim=0)
-        pairs = get_pairs(combined_data, max_n_pairs=regularization_budget)
-        regularization_points = interpolate_pairs(pairs)
+    random_data = torch.rand_like(x)
+    combined_data = torch.cat([x, random_data], dim=0)
+    pairs = get_pairs(combined_data, max_n_pairs=regularization_budget)
+    regularization_points = interpolate_pairs(pairs)
 
     # Separate monotonic and non-monotonic features
     monotonic_mask = torch.zeros(regularization_points.shape[1], dtype=torch.bool)
@@ -159,7 +150,7 @@ def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.
 
     # Compute regularization
     grad_penalty = torch.relu(-grad_wrt_monotonic_input) ** 2
-    regularization = torch.mean(torch.sum(grad_penalty, dim=1))
+    regularization = torch.max(torch.sum(grad_penalty, dim=1))
 
     return empirical_loss + monotonicity_weight * regularization
 

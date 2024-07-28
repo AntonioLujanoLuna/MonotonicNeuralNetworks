@@ -174,7 +174,7 @@ def compute_mixup_loss(model: CertifiedMonotonicNetwork, optimizer: AdamWSchedul
         return empirical_loss
 
     # Compute regularization
-    grad_penalty = torch.relu(-grad_wrt_monotonic_input) ** 2
+    grad_penalty = torch.relu(-grad_wrt_monotonic_input + model.b) ** 2
     regularization = torch.mean(torch.sum(grad_penalty, dim=1))
 
     return empirical_loss + monotonicity_weight * regularization
