@@ -2,6 +2,8 @@
 
 import ast
 import csv
+import multiprocessing
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -143,14 +145,9 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
                              model_type: str, n_trials: int = 30, sample_size: int = 50000) -> Dict[
     str, Union[float, List[int], int]]:
     if len(X) > sample_size:
-        if task_type == "classification":
-            indices = torch.randperm(len(X))[:sample_size]
-            X_sampled = X[indices]
-            y_sampled = y[indices]
-        else:
-            np.random.seed(GLOBAL_SEED)
-            indices = np.random.choice(len(X), sample_size, replace=False)
-            X_sampled, y_sampled = X[indices], y[indices]
+        np.random.seed(GLOBAL_SEED)
+        indices = np.random.choice(len(X), sample_size, replace=False)
+        X_sampled, y_sampled = X[indices], y[indices]
     else:
         X_sampled, y_sampled = X, y
 
@@ -162,7 +159,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
 
     def objective(trial):
         config = {
-            "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+            "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
             "K": trial.suggest_int("K", 2, 6),
             "h_K": trial.suggest_categorical("h_K", [4, 8, 16, 32, 64]),
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
@@ -193,7 +190,8 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=False, n_jobs=-1)
+        n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        study.optimize(objective, n_trials=n_trials, show_progress_bar=False, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
     except ValueError as e:
@@ -352,7 +350,7 @@ def process_dataset(data_loader: Callable, model_type: str, sample_size: int = 5
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 10
+    n_trials = 50
     best_config = optimize_hyperparameters(X, y, task_type, monotonic_indices, model_type, sample_size=sample_size, n_trials=n_trials)
 
     if data_loader == load_blog_feedback:
@@ -378,7 +376,7 @@ def main():
     ]
 
     model_types = ["minmax", "minmax_aux", "smooth_minmax", "smooth_minmax_aux"]
-    sample_size = 30000
+    sample_size = 50000
 
     for model_type in model_types:
         results_file = f"exps_{model_type}.csv"

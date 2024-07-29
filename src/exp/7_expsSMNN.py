@@ -2,6 +2,8 @@
 
 import ast
 import csv
+import multiprocessing
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -108,7 +110,7 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
               val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int]) -> float:
     config = {
-        "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+        "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
         "n_layers": trial.suggest_categorical("n_layers", [2]),
         "unit_size": trial.suggest_categorical("unit_size", [8, 16, 32, 64]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
@@ -134,14 +136,9 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
 def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monotonic_indices: List[int], n_trials: int = 30,
                              sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
     if len(X) > sample_size:
-        if task_type == "classification":
-            indices = torch.randperm(len(X))[:sample_size]
-            X_sampled = X[indices]
-            y_sampled = y[indices]
-        else:
-            np.random.seed(GLOBAL_SEED)
-            indices = np.random.choice(len(X), sample_size, replace=False)
-            X_sampled, y_sampled = X[indices], y[indices]
+        np.random.seed(GLOBAL_SEED)
+        indices = np.random.choice(len(X), sample_size, replace=False)
+        X_sampled, y_sampled = X[indices], y[indices]
     else:
         X_sampled, y_sampled = X, y
 
@@ -153,8 +150,9 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type, monotonic_indices),
-                       n_trials=n_trials, show_progress_bar=False, n_jobs=-1)
+        n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type),
+                       n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
     except ValueError as e:
@@ -306,7 +304,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 10
+    n_trials = 50
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
 
     if data_loader == load_blog_feedback:
@@ -331,7 +329,7 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
-    sample_size = 30000
+    sample_size = 50000
     results_file = "expsScalableMonotonic.csv"
 
     # Create the CSV file and write the header

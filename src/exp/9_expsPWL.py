@@ -2,6 +2,8 @@
 
 import ast
 import csv
+import multiprocessing
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -110,14 +112,9 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
                              n_trials: int = 30,
                              sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
     if len(X) > sample_size:
-        if task_type == "classification":
-            indices = torch.randperm(len(X))[:sample_size]
-            X_sampled = X[indices]
-            y_sampled = y[indices]
-        else:
-            np.random.seed(GLOBAL_SEED)
-            indices = np.random.choice(len(X), sample_size, replace=False)
-            X_sampled, y_sampled = X[indices], y[indices]
+        np.random.seed(GLOBAL_SEED)
+        indices = np.random.choice(len(X), sample_size, replace=False)
+        X_sampled, y_sampled = X[indices], y[indices]
     else:
         X_sampled, y_sampled = X, y
 
@@ -132,7 +129,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     def objective(trial):
         hidden_sizes = generate_layer_combinations(min_layers=2, max_layers=2, units=[8, 16, 32, 64])
         config = {
-            "lr": trial.suggest_float("lr", 1e-4, 1e-1, log=True),
+            "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
             "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes)),
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
             "epochs": 100,
@@ -157,11 +154,21 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
         return val_loss
 
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
-    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
 
-    best_params = study.best_params
-    best_params["hidden_sizes"] = ast.literal_eval(best_params["hidden_sizes"])
-    best_params["epochs"] = 100
+    try:
+        n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        study.optimize(objective, n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
+        best_params = study.best_params
+        best_params["epochs"] = 100
+    except ValueError as e:
+        print(f"Optimization failed: {e}")
+        best_params = {
+            "lr": 0.001,
+            "hidden_sizes": [32, 32],
+            "batch_size": 32,
+            "epochs": 100,
+            "monotonicity_weight": 1.0
+        }
 
     return best_params
 
@@ -274,7 +281,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 10
+    n_trials = 50
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
 
     if data_loader == load_blog_feedback:
@@ -299,7 +306,7 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
-    sample_size = 30000
+    sample_size = 50000
     results_file = "expsPWL.csv"
 
     # Create the CSV file and write the header
