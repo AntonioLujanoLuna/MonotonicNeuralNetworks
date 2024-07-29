@@ -99,6 +99,10 @@ def load_data(
         y = generate_normalize_numerical_mat(np.concatenate([y_train, y_test], axis=0))
         y_train, y_test = y[:len(y_train)], y[len(y_train):]
 
+    # Reorder cols so that monotonic features come first
+    X_train = np.concatenate((X_train[:, mono_list], X_train[:, [i for i in range(X_train.shape[1]) if i not in mono_list]]), axis=1)
+    X_test = np.concatenate((X_test[:, mono_list], X_test[:, [i for i in range(X_test.shape[1]) if i not in mono_list]]), axis=1)
+
     return X_train, y_train, X_test, y_test
 
 def preprocess_abalone(data: pd.DataFrame) -> pd.DataFrame:

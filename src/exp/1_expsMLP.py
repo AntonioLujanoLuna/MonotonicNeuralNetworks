@@ -15,8 +15,8 @@ from src.MLP import StandardMLP
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
-from src.utils import monotonicity_check, get_monotonic_indices, write_results_to_csv, count_parameters, \
-    generate_layer_combinations
+from src.utils import monotonicity_check, write_results_to_csv, count_parameters, \
+    generate_layer_combinations, get_reordered_monotonic_indices
 
 GLOBAL_SEED = 42
 
@@ -310,7 +310,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     print(f"\nProcessing dataset: {data_loader.__name__}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
-    monotonic_indices = get_monotonic_indices(data_loader.__name__)
+    monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
     n_trials = 10
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials)
 

@@ -74,6 +74,31 @@ def get_monotonic_indices(dataset_name: str) -> List[int]:
     }
     return monotonic_indices.get(dataset_name, [])
 
+def get_reordered_monotonic_indices(dataset_name: str) -> List[int]:
+    # Remove the "load_" prefix if present
+    dataset_name = dataset_name.replace("load_", "")
+
+    # Define the number of monotonic features for each dataset
+    monotonic_feature_counts = {
+        'abalone': 4,
+        'auto_mpg': 7,
+        'blog_feedback': 9,
+        'boston_housing': 2,
+        'compas': 4,
+        'era': 4,
+        'esl': 4,
+        'heart': 2,
+        'lev': 4,
+        'loan': 5,
+        'swd': 7
+    }
+
+    # Get the number of monotonic features for the given dataset
+    num_monotonic_features = monotonic_feature_counts.get(dataset_name, 0)
+
+    # Return a list of consecutive integers starting from 0
+    return list(range(num_monotonic_features))
+
 
 def init_weights(module_or_tensor: Union[nn.Module, torch.Tensor],
                  method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal', 'uniform', 'zeros'],

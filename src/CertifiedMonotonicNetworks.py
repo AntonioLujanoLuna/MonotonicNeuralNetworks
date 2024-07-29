@@ -12,14 +12,12 @@ from src.MLP import StandardMLP
 
 class CertifiedMonotonicNetwork(nn.Module):
     def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int, monotonic_indices: List[int],
-                 bottleneck_size: int, monotonicity_weight: float = 1.0, activation: nn.Module = nn.ReLU(),
-                 output_activation: nn.Module = nn.Identity(), dropout_rate: float = 0.0,
-                 regularization_type: str = 'random', b: float = 0.2,
+                 monotonicity_weight: float = 1.0, activation: nn.Module = nn.ReLU(),
+                 output_activation: nn.Module = nn.Identity(), dropout_rate: float = 0.0, b: float = 0.2,
                  init_method: Literal[
                      'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'):
         super().__init__()
         self.monotonicity_weight = monotonicity_weight
-        self.regularization_type = regularization_type
         self.b = b
         self.n_monotonic_features = len(monotonic_indices)
         self.n_non_monotonic_features = input_size - self.n_monotonic_features
@@ -28,18 +26,9 @@ class CertifiedMonotonicNetwork(nn.Module):
         self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool)
         self.monotonic_mask[monotonic_indices] = True
 
-        # Bottleneck for non-monotonic features
-        self.non_monotonic_bottleneck = nn.Sequential(
-            nn.Linear(self.n_non_monotonic_features, bottleneck_size),
-            activation
-        )
-
-        # Adjust the input size of the main network to account for the bottleneck
-        adjusted_input_size = self.n_monotonic_features + bottleneck_size
-
         # Main network
-        self.main_network = StandardMLP(
-            input_size=adjusted_input_size,
+        self.model = StandardMLP(
+            input_size=input_size,
             hidden_sizes=hidden_sizes,
             output_size=output_size,
             activation=activation,
@@ -49,18 +38,55 @@ class CertifiedMonotonicNetwork(nn.Module):
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # Split input into monotonic and non-monotonic features
-        monotonic_features = x[:, self.monotonic_mask]
-        non_monotonic_features = x[:, ~self.monotonic_mask]
+        return self.model(x)
 
-        # Apply bottleneck to non-monotonic features
-        bottleneck_output = self.non_monotonic_bottleneck(non_monotonic_features)
+def uniform_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
+                       task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
+                       regularization_budget: int = 1000, b:float = 0.2) -> torch.Tensor:
+    device = x.device
 
-        # Concatenate monotonic features and bottleneck output
-        combined_features = torch.cat([monotonic_features, bottleneck_output], dim=1)
+    # Compute empirical loss
+    y_pred = model(x)
+    if task_type == "regression":
+        empirical_loss = nn.MSELoss()(y_pred, y)
+    else:
+        empirical_loss = nn.BCELoss()(y_pred, y)
 
-        # Pass through main network
-        return self.main_network(combined_features)
+    # Prepare for regularization
+    model.train()
+    optimizer.train()
+
+    # Generate regularization points
+    regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
+
+    # Separate monotonic and non-monotonic features
+    monotonic_mask = torch.zeros(regularization_points.shape[1], dtype=torch.bool)
+    monotonic_mask[monotonic_indices] = True
+    data_monotonic = regularization_points[:, monotonic_mask]
+    data_non_monotonic = regularization_points[:, ~monotonic_mask]
+
+    data_monotonic.requires_grad_(True)
+
+    def closure():
+        optimizer.zero_grad()
+        with torch.set_grad_enabled(True):
+            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
+            loss = torch.sum(outputs)
+        loss.backward()
+        return loss
+
+    closure()
+    grad_wrt_monotonic_input = data_monotonic.grad
+
+    if grad_wrt_monotonic_input is None:
+        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
+        return empirical_loss
+
+    # Compute regularization
+    grad_penalty = torch.relu(-grad_wrt_monotonic_input + b) ** 2
+    regularization = torch.max(torch.sum(grad_penalty, dim=1))
+
+    return empirical_loss + monotonicity_weight * regularization
 
 
 def certify_grad_with_gurobi(first_layer, second_layer, mono_feature_num, direction=None):
@@ -132,49 +158,3 @@ def certify_monotonicity(model: CertifiedMonotonicNetwork):
             break
     return mono_flag
 
-def compute_mixup_loss(model: CertifiedMonotonicNetwork, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-                       task_type: str, monotonicity_weight: float = 1.0,
-                       regularization_budget: int = 1000) -> torch.Tensor:
-    device = x.device
-
-    # Compute empirical loss
-    y_pred = model(x)
-    if task_type == "regression":
-        empirical_loss = nn.MSELoss()(y_pred, y)
-    else:
-        empirical_loss = nn.BCELoss()(y_pred, y)
-
-    # Prepare for regularization
-    model.train()
-    optimizer.train()
-
-    # Generate regularization points
-    regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
-
-    data_monotonic = regularization_points[:, model.monotonic_mask]
-    data_non_monotonic = regularization_points[:, ~model.monotonic_mask]
-
-    data_monotonic.requires_grad_(True)
-
-    def closure():
-        optimizer.zero_grad()
-        with torch.set_grad_enabled(True):
-            bottleneck_output = model.non_monotonic_bottleneck(data_non_monotonic)
-            combined_features = torch.cat([data_monotonic, bottleneck_output], dim=1)
-            outputs = model.main_network(combined_features)
-            loss = torch.sum(outputs)
-        loss.backward()
-        return loss
-
-    closure()
-    grad_wrt_monotonic_input = data_monotonic.grad
-
-    if grad_wrt_monotonic_input is None:
-        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
-        return empirical_loss
-
-    # Compute regularization
-    grad_penalty = torch.relu(-grad_wrt_monotonic_input + model.b) ** 2
-    regularization = torch.mean(torch.sum(grad_penalty, dim=1))
-
-    return empirical_loss + monotonicity_weight * regularization

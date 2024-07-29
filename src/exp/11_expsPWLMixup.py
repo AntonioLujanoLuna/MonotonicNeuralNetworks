@@ -12,11 +12,11 @@ from typing import Callable, Tuple, List, Dict, Union
 import optuna
 from schedulefree import AdamWScheduleFree
 from src.MLP import StandardMLP
-from src.MixupPWLNetwork import compute_mixup_loss
+from src.MixupPWLNetwork import mixup_pwl
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
-from src.utils import monotonicity_check, get_monotonic_indices, write_results_to_csv, count_parameters, \
+from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters, \
     generate_layer_combinations
 
 GLOBAL_SEED = 42
@@ -63,15 +63,11 @@ def train_model(model: StandardMLP, optimizer: AdamWScheduleFree, train_loader: 
         for batch_X, batch_y in train_loader:
             batch_X, batch_y = batch_X.to(device), batch_y.to(device)
 
-            def closure():
-                optimizer.zero_grad()
-                loss = compute_mixup_loss(model, optimizer, batch_X, batch_y, task_type, monotonic_indices,
-                                          config["monotonicity_weight"], config["regularization_type"],
-                                          config["regularization_budget"])
-                loss.backward()
-                return loss
-
-            optimizer.step(closure)
+            optimizer.zero_grad()
+            loss = mixup_pwl(model, optimizer, batch_X, batch_y, task_type, monotonic_indices,
+                             config["monotonicity_weight"], config["regularization_budget"])
+            loss.backward()
+            optimizer.step()
 
         model.eval()
         optimizer.eval()
@@ -280,7 +276,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     print(f"\nProcessing dataset: {data_loader.__name__}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
-    monotonic_indices = get_monotonic_indices(data_loader.__name__)
+    monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
     n_trials = 10
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
 
@@ -307,7 +303,7 @@ def main():
     ]
 
     sample_size = 30000
-    results_file = "expsPWLMixup.csv"
+    results_file = "expsmixupPWL.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:

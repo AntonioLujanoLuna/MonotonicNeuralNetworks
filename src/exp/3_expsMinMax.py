@@ -15,7 +15,7 @@ from src.MinMaxNetwork import MinMaxNetwork, MinMaxNetworkWithMLP, SmoothMinMaxN
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
-from src.utils import monotonicity_check, get_monotonic_indices, write_results_to_csv, count_parameters
+from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters
 
 GLOBAL_SEED = 42
 
@@ -278,7 +278,7 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     return metric, mono_metrics
 
 def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: str, monotonic_indices: List[int],
-                   n_splits: int = 5) -> Tuple[List[float], Dict, int]:
+                   model_type: str, n_splits: int = 5) -> Tuple[List[float], Dict, int]:
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
@@ -297,7 +297,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold).to(device)
+        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, monotonic_indices, model_type).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
@@ -312,7 +312,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
 
 
 def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray,
-                        best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 5) -> Tuple[
+                        best_config: Dict, task_type: str, monotonic_indices: List[int], model_type: str,n_repeats: int = 5) -> Tuple[
     List[float], Dict, int]:
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
@@ -332,10 +332,10 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
+        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i, monotonic_indices, model_type).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
-        _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
+        _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)
 
         val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader,
                                                                    task_type,
@@ -351,7 +351,7 @@ def process_dataset(data_loader: Callable, model_type: str, sample_size: int = 5
     print(f"\nProcessing dataset: {data_loader.__name__} with model: {model_type}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
-    monotonic_indices = get_monotonic_indices(data_loader.__name__)
+    monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
     n_trials = 10
     best_config = optimize_hyperparameters(X, y, task_type, monotonic_indices, model_type, sample_size=sample_size, n_trials=n_trials)
 
@@ -379,28 +379,29 @@ def main():
 
     model_types = ["minmax", "minmax_aux", "smooth_minmax", "smooth_minmax_aux"]
     sample_size = 30000
-    results_file = "expsMinMax.csv"
-
-    # Create the CSV file and write the header
-    with open(results_file, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "Model Type", "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev",
-            "Best Configuration",
-            "Mono Random Mean", "Mono Random Std",
-            "Mono Train Mean", "Mono Train Std",
-            "Mono Val Mean", "Mono Val Std",
-            "NumofParameters"
-        ])
 
     for model_type in model_types:
+        results_file = f"exps_{model_type}.csv"
+
+        # Create the CSV file and write the header
+        with open(results_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev",
+                "Best Configuration",
+                "Mono Random Mean", "Mono Random Std",
+                "Mono Train Mean", "Mono Train Std",
+                "Mono Val Mean", "Mono Val Std",
+                "NumofParameters"
+            ])
+
         for data_loader in dataset_loaders:
             task_type = get_task_type(data_loader)
             scores, best_config, mono_metrics, n_params = process_dataset(data_loader, model_type, sample_size)
             metric_name = "RMSE" if task_type == "regression" else "Error Rate"
 
             # Write results to CSV file
-            write_results_to_csv(results_file, data_loader.__name__, model_type, task_type, metric_name,
+            write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
                                  np.mean(scores), np.std(scores), best_config, mono_metrics, n_params)
 
             # Print results to console (optional, you can remove this if you only want file output)
