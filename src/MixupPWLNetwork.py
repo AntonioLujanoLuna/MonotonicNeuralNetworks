@@ -104,11 +104,9 @@ import random
 from itertools import combinations
 from schedulefree import AdamWScheduleFree
 
-def compute_mixup_loss(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
+def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
                        task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                       regularization_type: str = 'mixup', regularization_budget: int = 1000) -> torch.Tensor:
-    device = x.device
-
+                       regularization_budget: int = 1000) -> torch.Tensor:
     # Compute empirical loss
     y_pred = model(x)
     if task_type == "regression":
@@ -170,5 +168,4 @@ def interpolate_pairs(pairs, interpolation_range=0.5):
     lower_bound = 0.5 - interpolation_range
     upper_bound = 0.5 + interpolation_range
     interpolation_factors = torch.rand(len(pairs_left), 1, device=pairs_left.device) * (upper_bound - lower_bound) + lower_bound
-
     return interpolation_factors * pairs_left + (1 - interpolation_factors) * pairs_right
