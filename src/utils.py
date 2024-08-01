@@ -60,7 +60,7 @@ def get_monotonic_indices(dataset_name: str) -> List[int]:
 
     # Define monotonic indices for each dataset
     monotonic_indices = {
-        'abalone': [5, 6, 7, 8],
+        'abalone': [4, 5, 6, 7],
         'auto_mpg': [0, 1, 2, 3, 4, 5, 6],
         'blog_feedback': list(range(50, 59)),
         'boston_housing': [0, 5],

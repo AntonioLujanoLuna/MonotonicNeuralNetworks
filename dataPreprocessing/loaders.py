@@ -171,7 +171,7 @@ def preprocess_loan(data: pd.DataFrame) -> pd.DataFrame:
 def load_abalone(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/abalone.csv",
-        mono_inc_list=[6, 7, 8, 9],
+        mono_inc_list=[4, 5, 6, 7],
         mono_dec_list=[],
         class_list=[],
         target_column="Rings",
@@ -183,8 +183,8 @@ def load_abalone(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np
 def load_auto_mpg(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/auto-mpg.csv",
-        mono_inc_list=[4, 5, 6],  # acceleration, model_Year, origin
-        mono_dec_list=[0, 1, 2, 3],  # cylinders, displacement, horsepower, weight
+        mono_inc_list=[4, 5, 6],
+        mono_dec_list=[0, 1, 2, 3],
         class_list=[],
         target_column="mpg",
         normalize_target=True,
@@ -207,8 +207,8 @@ def load_blog_feedback(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarra
 def load_boston_housing(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/BostonHousing.csv",
-        mono_inc_list=[5],  # RM
-        mono_dec_list=[0],  # CRIM
+        mono_inc_list=[5],
+        mono_dec_list=[0],
         class_list=[],
         target_column="MEDV",
         normalize_target=True,
@@ -218,7 +218,7 @@ def load_boston_housing(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarr
 def load_compas(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/compas_scores_two_years.csv",
-        mono_inc_list=[0, 1, 2, 3],  # prior_count, juv_fel_count, juv_misd_count, juv_other_count
+        mono_inc_list=[0, 1, 2, 3],
         mono_dec_list=[],
         class_list=[],
         target_column="two_year_recid",
@@ -230,7 +230,7 @@ def load_compas(seed: int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.
 def load_era(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/era.csv",
-        mono_inc_list=[0, 1, 2, 3],  # in1, in2, in3, in4
+        mono_inc_list=[0, 1, 2, 3],
         mono_dec_list=[],
         class_list=[],
         target_column="out1",
@@ -241,7 +241,7 @@ def load_era(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
 def load_esl(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/esl.csv",
-        mono_inc_list=[0, 1, 2, 3],  # in1, in2, in3, in4
+        mono_inc_list=[0, 1, 2, 3],
         mono_dec_list=[],
         class_list=[],
         target_column="out1",
@@ -252,7 +252,7 @@ def load_esl(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndar
 def load_heart(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/heart.csv",
-        mono_inc_list=[3, 4],  # trestbps, chol
+        mono_inc_list=[3, 4],
         mono_dec_list=[],
         class_list=[],
         target_column="target",
@@ -263,7 +263,7 @@ def load_heart(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.nd
 def load_lev(seed:int = 42) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     return load_data(
         path="../datasets/lev.csv",
-        mono_inc_list=[0, 1, 2, 3],  # In1, In2, In3, In4
+        mono_inc_list=[0, 1, 2, 3],
         mono_dec_list=[],
         class_list=[],
         target_column="Out1",

@@ -2,8 +2,6 @@
 
 import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -154,7 +152,8 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, n_tri
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        #n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        n_jobs = -1
         study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type),
                        n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
         best_params = study.best_params
@@ -293,7 +292,7 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
-        _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
+        _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)
 
         val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader,
                                                                    task_type,
@@ -310,7 +309,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 50
+    n_trials = 30
     best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials)
 
     if data_loader == load_blog_feedback:
@@ -335,7 +334,7 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
-    sample_size = 50000
+    sample_size = 40000
     results_file = "expsMLP_weightsconstrained.csv"
 
     # Create the CSV file and write the header
