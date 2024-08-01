@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import List, Literal
-from utils import init_weights, transform_weights
+from src.utils import init_weights, transform_weights
 
 class WeightsConstrainedMLP(nn.Module):
     """
