@@ -314,12 +314,11 @@ def main():
     with open(results_file, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
-            "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev",
+            "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev", "NumofParameters",
             "Best Configuration",
             "Mono Random Mean", "Mono Random Std",
             "Mono Train Mean", "Mono Train Std",
-            "Mono Val Mean", "Mono Val Std",
-            "NumofParameters"
+            "Mono Val Mean", "Mono Val Std"
         ])
 
     for data_loader in dataset_loaders:
