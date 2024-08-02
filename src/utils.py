@@ -147,25 +147,33 @@ def init_weights(module_or_tensor: Union[nn.Module, torch.Tensor],
     else:
         raise TypeError("Input must be either nn.Module or torch.Tensor")
 
-def transform_weights(weights: torch.Tensor, method: Literal['exp', 'explin', 'sqr']) -> torch.Tensor:
+def transform_weights(module_or_tensor: Union[nn.Module, torch.Tensor], method: Literal['exp', 'explin', 'sqr']) -> torch.Tensor:
     """
     Apply the specified transformation to ensure positive weights.
 
     Args:
-        weights (torch.Tensor): Input weights.
+        module_or_tensor (Union[nn.Module, torch.Tensor]): The module or tensor to transform.
         method (Literal['exp', 'explin', 'sqr']): Transformation method.
 
     Returns:
         torch.Tensor: Transformed weights.
     """
-    if method == 'exp':
-        return torch.exp(weights)
-    elif method == 'explin':
-        return torch.where(weights > 1., weights, torch.exp(weights - 1.))
-    elif method == 'sqr':
-        return weights * weights
+    def transform_tensor(tensor):
+        if method == 'exp':
+            return torch.exp(tensor)
+        elif method == 'explin':
+            return torch.where(tensor > 1., tensor, torch.exp(tensor - 1.))
+        elif method == 'sqr':
+            return torch.square(tensor)
+        else:
+            raise ValueError(f"Unsupported transform method: {method}")
+
+    if isinstance(module_or_tensor, nn.Module):
+        return nn.ParameterList([nn.Parameter(transform_tensor(param)) for param in module_or_tensor.parameters()])
+    elif isinstance(module_or_tensor, torch.Tensor):
+        return transform_tensor(module_or_tensor)
     else:
-        raise ValueError(f"Unsupported transform method: {method}")
+        raise TypeError("Input must be either nn.Module or torch.Tensor")
 
 def write_results_to_csv(filename: str, dataset_name: str, task_type: str, metric_name: str,
                          metric_value: float, metric_std: float, best_config: Dict, mono_metrics: Dict, n_params: int):

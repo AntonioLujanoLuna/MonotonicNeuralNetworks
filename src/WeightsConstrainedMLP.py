@@ -46,6 +46,7 @@ class WeightsConstrainedMLP(nn.Module):
         """
         super(WeightsConstrainedMLP, self).__init__()
         self.transform = transform
+        self.input_size = input_size
         self.activation = activation
         self.output_activation = output_activation
         self.dropout_rate = dropout_rate

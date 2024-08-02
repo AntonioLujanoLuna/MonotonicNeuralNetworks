@@ -156,7 +156,8 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        # n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        n_jobs = -1
         study.optimize(objective, n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
@@ -306,7 +307,7 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
-    sample_size = 50000
+    sample_size = 40000
     results_file = "expsPWL.csv"
 
     # Create the CSV file and write the header
