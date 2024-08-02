@@ -2,8 +2,6 @@
 
 import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -39,44 +37,48 @@ def get_task_type(data_loader: Callable) -> str:
 
 
 def create_model(config: Dict, input_size: int, task_type: str, seed: int, monotonic_indices: List[int],
-                 model_type: str) -> nn.Module:
+                 model_type: str, device: torch.device) -> nn.Module:
     torch.manual_seed(seed)
 
     if model_type == "minmax":
         return MinMaxNetwork(
-            n=input_size,
+            input_size=input_size,
             K=config["K"],
             h_K=config["h_K"],
             monotonic_indices=monotonic_indices,
-            use_sigmoid=task_type == "classification"
+            use_sigmoid=task_type == "classification",
+            device=device
         )
     elif model_type == "minmax_aux":
         return MinMaxNetworkWithMLP(
-            n=input_size,
+            input_size=input_size,
             K=config["K"],
             h_K=config["h_K"],
             monotonic_indices=monotonic_indices,
             aux_hidden_units=config["aux_hidden_units"],
-            use_sigmoid=task_type == "classification"
+            use_sigmoid=task_type == "classification",
+            device=device
         )
     elif model_type == "smooth_minmax":
         return SmoothMinMaxNetwork(
-            n=input_size,
+            input_size=input_size,
             K=config["K"],
             h_K=config["h_K"],
             monotonic_indices=monotonic_indices,
             beta=config["beta"],
-            use_sigmoid=task_type == "classification"
+            use_sigmoid=task_type == "classification",
+            device=device
         )
     elif model_type == "smooth_minmax_aux":
         return SmoothMinMaxNetworkWithMLP(
-            n=input_size,
+            input_size=input_size,
             K=config["K"],
             h_K=config["h_K"],
             monotonic_indices=monotonic_indices,
             aux_hidden_units=config["aux_hidden_units"],
             beta=config["beta"],
-            use_sigmoid=task_type == "classification"
+            use_sigmoid=task_type == "classification",
+            device=device
         )
     else:
         raise ValueError(f"Unknown model type: {model_type}")
@@ -181,7 +183,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
         val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
 
         input_size = dataset.tensors[0].shape[1]
-        model = create_model(config, input_size, task_type, GLOBAL_SEED, monotonic_indices, model_type).to(device)
+        model = create_model(config, input_size, task_type, GLOBAL_SEED, monotonic_indices, model_type, device).to(device)
         optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
         val_metric = train_model(model, optimizer, train_loader, val_loader, config, task_type, device)
 
@@ -190,7 +192,8 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        #n_jobs = max(1, multiprocessing.cpu_count() // 2)
+        n_jobs = -1
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
@@ -295,7 +298,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, monotonic_indices, model_type).to(device)
+        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, monotonic_indices, model_type, device).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
@@ -330,14 +333,13 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i, monotonic_indices, model_type).to(device)
+        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i, monotonic_indices, model_type, device).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
         _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)
 
         val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader,
-                                                                   task_type,
-                                                                   device, monotonic_indices)
+                                                                   task_type, device, monotonic_indices)
         scores.append(val_metric)
         for key in mono_metrics:
             mono_metrics[key].append(fold_mono_metrics[key])
@@ -376,7 +378,7 @@ def main():
     ]
 
     model_types = ["minmax", "minmax_aux", "smooth_minmax", "smooth_minmax_aux"]
-    sample_size = 50000
+    sample_size = 40000
 
     for model_type in model_types:
         results_file = f"exps_{model_type}.csv"
