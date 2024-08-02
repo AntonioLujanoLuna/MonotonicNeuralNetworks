@@ -283,7 +283,6 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
-    best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
@@ -318,7 +317,6 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
 
     for i in range(n_repeats):
         np.random.seed(GLOBAL_SEED + i)
