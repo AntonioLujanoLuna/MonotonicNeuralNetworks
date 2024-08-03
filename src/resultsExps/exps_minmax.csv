@@ -1,0 +1,12 @@
+Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std,NumofParameters
+load_abalone,regression,RMSE,0.0830,0.0030,864,"{""lr"": 0.029181588052634936, ""K"": 3, ""h_K"": 32, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_auto_mpg,regression,RMSE,0.0857,0.0042,512,"{""lr"": 0.0957635993750559, ""K"": 4, ""h_K"": 16, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_blog_feedback,regression,RMSE,0.1475,0.0007,11240,"{""lr"": 0.00796920025429634, ""K"": 5, ""h_K"": 8, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_boston_housing,regression,RMSE,0.0877,0.0161,4480,"{""lr"": 0.08748154964636838, ""K"": 5, ""h_K"": 64, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_compas,classification,Error Rate,0.3202,0.0056,64,"{""lr"": 0.06589123271530214, ""K"": 2, ""h_K"": 4, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_era,regression,RMSE,0.1965,0.0058,800,"{""lr"": 0.04310574703191241, ""K"": 5, ""h_K"": 32, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_esl,regression,RMSE,0.0668,0.0057,100,"{""lr"": 0.09495151786063602, ""K"": 5, ""h_K"": 4, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_heart,classification,Error Rate,0.1783,0.0550,224,"{""lr"": 0.0343430120466492, ""K"": 4, ""h_K"": 4, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_lev,regression,RMSE,0.1573,0.0127,200,"{""lr"": 0.005614824458630483, ""K"": 5, ""h_K"": 8, ""batch_size"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_swd,regression,RMSE,0.2111,0.0060,1056,"{""lr"": 0.01655399934447148, ""K"": 6, ""h_K"": 16, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_loan,classification,Error Rate,0.3504,0.0013,1440,"{""lr"": 0.006295248944422939, ""K"": 6, ""h_K"": 8, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000

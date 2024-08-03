@@ -1,0 +1,12 @@
+Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std,NumofParameters
+load_abalone,regression,RMSE,0.0748,0.0024,713,"{""lr"": 0.04428367403666013, ""hidden_sizes"": [8, 64], ""batch_size"": 64, ""epochs"": 100}",0.9667,0.0266,0.9105,0.1789,1.0000,0.0000
+load_auto_mpg,regression,RMSE,0.0719,0.0100,2433,"{""lr"": 0.09811656676228442, ""hidden_sizes"": [32, 64], ""batch_size"": 16, ""epochs"": 100}",0.9391,0.0781,1.0000,0.0000,1.0000,0.0000
+load_blog_feedback,regression,RMSE,0.1358,0.0043,4785,"{""lr"": 0.020918413149522606, ""hidden_sizes"": [16, 16], ""batch_size"": 16, ""epochs"": 100}",0.6388,0.1604,0.4836,0.3357,0.4250,0.4090
+load_boston_housing,regression,RMSE,0.0678,0.0102,5121,"{""lr"": 0.0013983973589903281, ""hidden_sizes"": [64, 64], ""batch_size"": 16, ""epochs"": 100}",0.2871,0.2039,0.2554,0.0612,0.3980,0.1082
+load_compas,classification,Error Rate,0.3171,0.0028,705,"{""lr"": 0.006741349738796535, ""hidden_sizes"": [8, 64], ""batch_size"": 128, ""epochs"": 100}",0.7610,0.2528,0.6514,0.2791,0.6628,0.2957
+load_era,regression,RMSE,0.1966,0.0052,657,"{""lr"": 0.0914834247268068, ""hidden_sizes"": [16, 32], ""batch_size"": 32, ""epochs"": 100}",0.1350,0.1192,0.7670,0.2281,0.9870,0.0133
+load_esl,regression,RMSE,0.0660,0.0050,2337,"{""lr"": 0.05661003724844464, ""hidden_sizes"": [32, 64], ""batch_size"": 64, ""epochs"": 100}",0.1622,0.1432,1.0000,0.0000,1.0000,0.0000
+load_heart,classification,Error Rate,0.1649,0.0226,993,"{""lr"": 0.09185139694044091, ""hidden_sizes"": [32, 16], ""batch_size"": 128, ""epochs"": 100}",0.4619,0.1866,0.9802,0.0263,0.9901,0.0133
+load_lev,regression,RMSE,0.1601,0.0115,2337,"{""lr"": 0.022946670310782055, ""hidden_sizes"": [32, 64], ""batch_size"": 16, ""epochs"": 100}",0.2840,0.1053,0.9720,0.0209,1.0000,0.0000
+load_swd,regression,RMSE,0.2101,0.0062,2529,"{""lr"": 0.07005056625746753, ""hidden_sizes"": [32, 64], ""batch_size"": 128, ""epochs"": 100}",0.7670,0.1267,1.0000,0.0000,1.0000,0.0000
+load_loan,classification,Error Rate,0.3482,0.0022,1633,"{""lr"": 0.04249576921544568, ""hidden_sizes"": [16, 64], ""batch_size"": 32, ""epochs"": 100}",0.8602,0.1901,0.9464,0.0409,0.9748,0.0383

@@ -111,7 +111,7 @@ class MinMaxNetworkWithMLP(nn.Module):
         self.K = K
         self.h_K = h_K
         self.device = device
-        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool)
+        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool, device=self.device)
         self.monotonic_mask[monotonic_indices] = True
         self.transform = transform
         self.use_sigmoid = use_sigmoid
@@ -125,7 +125,7 @@ class MinMaxNetworkWithMLP(nn.Module):
             nn.Linear(non_monotonic_dim, aux_hidden_units),
             aux_activation,
             nn.Linear(aux_hidden_units, 1)
-        )
+        ).to(self.device)
 
         for params in self.parameters():
             if len(params.shape) > 1:
@@ -149,7 +149,9 @@ class MinMaxNetworkWithMLP(nn.Module):
         group_outputs = []
         for i in range(self.K):
             w = torch.where(self.monotonic_mask, transform_weights(self.z[i], self.transform), self.z[i])
-            a = torch.matmul(x, w.t()) + self.t[i] + aux_output.squeeze(-1)
+            a = torch.matmul(x, w.t())  # Shape: (batch_size, h_K)
+            a = a + self.t[i]  # Broadcasting will handle this correctly
+            a = a + aux_output.expand(-1, self.h_K)  # Expand aux_output to match a's shape
             g, _ = torch.max(a, dim=1)
             group_outputs.append(g)
 
@@ -190,12 +192,12 @@ class SmoothMinMaxNetwork(nn.Module):
         self.K = K
         self.h_K = h_K
         self.device = device
-        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool)
+        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool, device=self.device)
         self.monotonic_mask[monotonic_indices] = True
         self.transform = transform
         self.use_sigmoid = use_sigmoid
 
-        self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float))
+        self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float, device=self.device))
         self.z = nn.ParameterList([nn.Parameter(torch.empty(h_K, input_size, device=self.device)) for _ in range(K)])
         self.t = nn.ParameterList([nn.Parameter(torch.empty(h_K, device=self.device)) for _ in range(K)])
 
@@ -271,12 +273,12 @@ class SmoothMinMaxNetworkWithMLP(nn.Module):
         self.K = K
         self.h_K = h_K
         self.device = device
-        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool)
+        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool, device=self.device)
         self.monotonic_mask[monotonic_indices] = True
         self.transform = transform
         self.use_sigmoid = use_sigmoid
 
-        self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float))
+        self.beta = nn.Parameter(torch.tensor(beta, dtype=torch.float, device=self.device))
         self.z = nn.ParameterList([nn.Parameter(torch.empty(h_K, input_size, device=self.device)) for _ in range(K)])
         self.t = nn.ParameterList([nn.Parameter(torch.empty(h_K, device=self.device)) for _ in range(K)])
 
@@ -286,7 +288,7 @@ class SmoothMinMaxNetworkWithMLP(nn.Module):
             nn.Linear(non_monotonic_dim, aux_hidden_units),
             aux_activation,
             nn.Linear(aux_hidden_units, 1)
-        )
+        ).to(self.device)
 
         for params in self.parameters():
             if len(params.shape) > 1:
@@ -319,7 +321,9 @@ class SmoothMinMaxNetworkWithMLP(nn.Module):
         group_outputs = []
         for i in range(self.K):
             w = torch.where(self.monotonic_mask, transform_weights(self.z[i], self.transform), self.z[i])
-            a = torch.matmul(x, w.t()) + self.t[i] + aux_output.squeeze(-1)
+            a = torch.matmul(x, w.t())  # Shape: (batch_size, h_K)
+            a = a + self.t[i]  # Broadcasting will handle this correctly
+            a = a + aux_output.expand(-1, self.h_K)  # Expand aux_output to match a's shape
             g = self.soft_max(a)
             group_outputs.append(g)
 
