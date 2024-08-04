@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from pmlayer.torch.layers import HLattice
 from typing import List, Optional, Literal
-from MLP import StandardMLP
+from src.MLP import StandardMLP
 
 
 class HLLNetwork(nn.Module):
@@ -30,6 +30,7 @@ class HLLNetwork(nn.Module):
             lattice_sizes: List[int],
             increasing: List[int],
             mlp_neurons: List[int],
+            device: torch.device,
             activation: nn.Module = nn.ReLU(),
             dropout_rate: float = 0.0,
             output_activation: Optional[nn.Module] = None,
@@ -46,10 +47,12 @@ class HLLNetwork(nn.Module):
             mlp_neurons (List[int]): Sizes of hidden layers in the MLP.
             activation (nn.Module): Activation function for the MLP.
             dropout_rate (float): Dropout rate for the MLP.
+            device (torch.device): Device
             init_method (str): Weight initialization method for the MLP.
         """
         super(HLLNetwork, self).__init__()
         self.dim = dim
+        self.device = device
         self.lattice_sizes = lattice_sizes
         self.increasing = increasing
         self.mlp_neurons = mlp_neurons
@@ -57,7 +60,6 @@ class HLLNetwork(nn.Module):
         self.dropout_rate = dropout_rate
         self.output_activation = output_activation
         self.init_method = init_method
-
         self.model = self._build_model()
 
     def _build_model(self) -> HLattice:
@@ -79,7 +81,6 @@ class HLLNetwork(nn.Module):
             init_method=self.init_method,
             output_activation=self.output_activation
         )
-
         return HLattice(self.dim, torch.tensor(self.lattice_sizes), self.increasing, ann)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:

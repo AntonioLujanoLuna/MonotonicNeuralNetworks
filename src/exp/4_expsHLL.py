@@ -39,7 +39,8 @@ def get_task_type(data_loader: Callable) -> str:
     return "regression" if data_loader in regression_tasks else "classification"
 
 
-def create_model(config: Dict, input_size: int, task_type: str, seed: int, monotonic_indices: List[int]) -> nn.Module:
+def create_model(config: Dict, input_size: int, task_type: str, seed: int, monotonic_indices: List[int],
+                 device: torch.device) -> nn.Module:
     torch.manual_seed(seed)
     output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
 
@@ -50,6 +51,7 @@ def create_model(config: Dict, input_size: int, task_type: str, seed: int, monot
         mlp_neurons=config["mlp_neurons"],
         activation=nn.ReLU(),
         output_activation=output_activation,
+        device=device
     )
 
 
@@ -134,7 +136,8 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
             "epochs": 100,
         }
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        #device = torch.device("cuda" if torch.cuda.is_available() else "cpu") due to pmlayer
+        device = torch.device("cpu")
 
         g = torch.Generator()
         g.manual_seed(GLOBAL_SEED)
@@ -143,7 +146,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
         val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
 
         input_size = dataset.tensors[0].shape[1]
-        model = create_model(config, input_size, task_type, GLOBAL_SEED, monotonic_indices).to(device)
+        model = create_model(config, input_size, task_type, GLOBAL_SEED, monotonic_indices, device)
         optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
         val_metric = train_model(model, optimizer, train_loader, val_loader, config, task_type, device)
 
@@ -240,7 +243,8 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
     best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") due to pmlayer
+    device = torch.device("cpu")
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
         X_train, X_val = X[train_idx], X[val_idx]
@@ -254,7 +258,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, monotonic_indices).to(device)
+        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, monotonic_indices, device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
@@ -273,7 +277,8 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
     List[float], Dict, int]:
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") due to pmlayer
+    device = torch.device("cpu")
     best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
 
     for i in range(n_repeats):
@@ -289,7 +294,7 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i, monotonic_indices).to(device)
+        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i, monotonic_indices, device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
         _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
