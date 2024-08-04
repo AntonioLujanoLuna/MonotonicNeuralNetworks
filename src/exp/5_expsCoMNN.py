@@ -2,8 +2,6 @@
 
 import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -18,7 +16,7 @@ from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_fe
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
 from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters, \
-    generate_layer_combinations
+    generate_layer_combinations, create_monotonicity_indicator
 
 GLOBAL_SEED = 42
 
@@ -39,20 +37,23 @@ def get_task_type(data_loader: Callable) -> str:
     return "regression" if data_loader in regression_tasks else "classification"
 
 
-def create_model(config: Dict, input_size: int, task_type: str, seed: int) -> ConstrainedMonotonicNeuralNetwork:
+def create_model(config: Dict, input_size: int, task_type: str, seed: int, architecture_type: str,
+                 monotonic_indices: List[int], device: torch.device) -> ConstrainedMonotonicNeuralNetwork:
     torch.manual_seed(seed)
     output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
-    monotonicity_indicator = get_reordered_monotonic_indices(config["dataset_name"])
-    return ConstrainedMonotonicNeuralNetwork(
+    if isinstance(config["hidden_sizes"], str):
+        config["hidden_sizes"] = ast.literal_eval(config["hidden_sizes"])
+    model = ConstrainedMonotonicNeuralNetwork(
         input_size=input_size,
         hidden_sizes=config["hidden_sizes"],
         output_size=1,
         activation=config["activation"],
-        monotonicity_indicator=monotonicity_indicator,
+        monotonicity_indicator=monotonic_indices,
         final_activation=output_activation,
-        architecture_type=config["architecture_type"]
+        architecture_type=architecture_type,
+        device=device
     )
-
+    return model.to(device)
 def train_model(model: nn.Module, optimizer, train_loader: DataLoader, val_loader: DataLoader,
                 config: Dict, task_type: str, device: torch.device) -> float:
     criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
@@ -113,7 +114,7 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
         return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
-              val_dataset: torch.utils.data.Subset, task_type: str) -> float:
+              val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int], architecture_type: str) -> float:
     hidden_sizes_options = generate_layer_combinations(min_layers=1, max_layers=3, units=[4, 8, 16, 32, 64])
     config = {
         "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
@@ -121,7 +122,6 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
         "epochs": 100,
         "activation": trial.suggest_categorical("activation", ["elu", "relu"]),
-        "architecture_type": trial.suggest_categorical("architecture_type", ["type1", "type2"])
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -132,17 +132,15 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
     train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, generator=g)
     val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
 
-    # Use the original dataset to get the input size
     input_size = dataset.tensors[0].shape[1]
-    model = create_model(config, input_size, task_type, GLOBAL_SEED).to(device)
+    model = create_model(config, input_size, task_type, GLOBAL_SEED, architecture_type, monotonic_indices, device).to(device)
     optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
     val_metric = train_model(model, optimizer, train_loader, val_loader, config, task_type, device)
 
     return val_metric
 
-
-def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, dataset_name: str, n_trials: int = 30,
-                             sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
+def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monotonic_indices: List[int], architecture_type: str,
+                             n_trials: int = 30, sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
     if len(X) > sample_size:
         np.random.seed(GLOBAL_SEED)
         indices = np.random.choice(len(X), sample_size, replace=False)
@@ -158,24 +156,20 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, datas
     study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
 
     try:
-        # n_jobs = max(1, multiprocessing.cpu_count() // 2)
         n_jobs = -1
-        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type),
+        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type, monotonic_indices, architecture_type),
                        n_trials=n_trials, show_progress_bar=False, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
     except ValueError as e:
         print(f"Optimization failed: {e}")
-        # Return default parameters if optimization fails
         best_params = {
             "lr": 0.001,
             "hidden_sizes": [32, 32],
             "batch_size": 32,
             "epochs": 100,
             "activation": "elu",
-            "architecture_type": "type1"
         }
-
     return best_params
 
 
@@ -243,11 +237,10 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     return metric, mono_metrics
 
 def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: str, monotonic_indices: List[int],
-                   n_splits: int = 5) -> Tuple[List[float], Dict, int]:
+                   architecture_type: str, n_splits: int = 5) -> Tuple[List[float], Dict, int]:
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
-    best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
@@ -262,7 +255,9 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold).to(device)
+        monotonicity_indicator = create_monotonicity_indicator(monotonic_indices, X.shape[1])
+        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, architecture_type,
+                             monotonicity_indicator, device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
@@ -277,7 +272,8 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
 
 
 def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray,
-                        best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 5) -> Tuple[
+                        best_config: Dict, task_type: str, monotonic_indices: List[int],
+                        architecture_type: str, n_repeats: int = 5) -> Tuple[
     List[float], Dict, int]:
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
@@ -296,11 +292,12 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         train_loader = DataLoader(train_dataset, batch_size=best_config["batch_size"], shuffle=True, generator=g)
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
-
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
+        monotonicity_indicator = create_monotonicity_indicator(monotonic_indices, X.shape[1])
+        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, architecture_type,
+                             monotonicity_indicator, device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
-        _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
+        _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)
 
         val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader,
                                                                    task_type,
@@ -312,28 +309,32 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
     return scores, mono_metrics, n_params
 
 
-def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[List[float], Dict, Dict, int]:
-    print(f"\nProcessing dataset: {data_loader.__name__}")
+def process_dataset(data_loader: Callable, architecture_type: str, sample_size: int = 50000) -> Tuple[
+    List[float], Dict, Dict, int]:
+    print(f"\nProcessing dataset: {data_loader.__name__} with architecture: {architecture_type}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
+    input_size = X.shape[1]
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
+    monotonicity_indicator = create_monotonicity_indicator(monotonic_indices, input_size)
     n_trials = 50
-    best_config = optimize_hyperparameters(X, y, task_type, data_loader.__name__, sample_size=sample_size, n_trials=n_trials)
+    best_config = optimize_hyperparameters(X, y, task_type, monotonicity_indicator, architecture_type,
+                                           sample_size=sample_size, n_trials=n_trials)
 
     if data_loader == load_blog_feedback:
-        scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, best_config, task_type, monotonic_indices)
+        scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, best_config, task_type,
+                                                             monotonic_indices, architecture_type)
     else:
         X = np.vstack((X, X_test))
         y = np.concatenate((y, y_test))
-        scores, mono_metrics, n_params = cross_validate(X, y, best_config, task_type, monotonic_indices)
+        scores, mono_metrics, n_params = cross_validate(X, y, best_config, task_type, monotonic_indices,
+                                                        architecture_type)
 
     avg_mono_metrics = {
         key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
     }
 
     return scores, best_config, avg_mono_metrics, n_params
-
-
 def main():
     set_global_seed(GLOBAL_SEED)
 
@@ -342,38 +343,40 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
+    architecture_types = ["type1", "type2"]
     sample_size = 40000
-    results_file = "expsMLP.csv"
 
-    # Create the CSV file and write the header
-    with open(results_file, 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerow([
-            "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev", "NumofParameters",
-            "Best Configuration",
-            "Mono Random Mean", "Mono Random Std",
-            "Mono Train Mean", "Mono Train Std",
-            "Mono Val Mean", "Mono Val Std"
-        ])
+    for architecture_type in architecture_types:
+        results_file = f"expsMLP_{architecture_type}.csv"
 
-    for data_loader in dataset_loaders:
-        task_type = get_task_type(data_loader)
-        scores, best_config, mono_metrics, n_params = process_dataset(data_loader, sample_size)
-        metric_name = "RMSE" if task_type == "regression" else "Error Rate"
+        # Create the CSV file and write the header
+        with open(results_file, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev", "NumofParameters",
+                "Best Configuration",
+                "Mono Random Mean", "Mono Random Std",
+                "Mono Train Mean", "Mono Train Std",
+                "Mono Val Mean", "Mono Val Std"
+            ])
 
-        # Write results to CSV file
-        write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
-                             np.mean(scores), np.std(scores), best_config, mono_metrics, n_params)
+        for data_loader in dataset_loaders:
+            task_type = get_task_type(data_loader)
+            scores, best_config, mono_metrics, n_params = process_dataset(data_loader, architecture_type, sample_size)
+            metric_name = "RMSE" if task_type == "regression" else "Error Rate"
 
+            # Write results to CSV file
+            write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
+                                 np.mean(scores), np.std(scores), best_config, mono_metrics, n_params)
 
-        # Print results to console (optional, you can remove this if you only want file output)
-        print(f"\nResults for {data_loader.__name__}:")
-        print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
-        print(f"Best configuration: {best_config}")
-        print(f"Number of parameters: {n_params}")
-        print("Monotonicity violation rates:")
-        for key, (mean, std) in mono_metrics.items():
-            print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
+            # Print results to console (optional, you can remove this if you only want file output)
+            print(f"\nResults for {data_loader.__name__} with {architecture_type}:")
+            print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
+            print(f"Best configuration: {best_config}")
+            print(f"Number of parameters: {n_params}")
+            print("Monotonicity violation rates:")
+            for key, (mean, std) in mono_metrics.items():
+                print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
 
 if __name__ == '__main__':
     main()

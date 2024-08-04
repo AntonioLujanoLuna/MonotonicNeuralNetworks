@@ -100,6 +100,23 @@ def get_reordered_monotonic_indices(dataset_name: str) -> List[int]:
     return list(range(num_monotonic_features))
 
 
+def create_monotonicity_indicator(monotonic_indices: List[int], input_size: int) -> List[int]:
+    """
+    Create a monotonicity indicator list based on the monotonic indices and input size.
+
+    Args:
+    monotonic_indices (List[int]): List of indices that should be monotonic
+    input_size (int): Total number of input features
+
+    Returns:
+    List[int]: A list of 0s and 1s, where 1 indicates a monotonic feature
+    """
+    monotonicity_indicator = [0] * input_size
+    for idx in monotonic_indices:
+        if idx < input_size:
+            monotonicity_indicator[idx] = 1
+    return monotonicity_indicator
+
 def init_weights(module_or_tensor: Union[nn.Module, torch.Tensor],
                  method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal', 'uniform', 'zeros'],
                  **kwargs) -> None:

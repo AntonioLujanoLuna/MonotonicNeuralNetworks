@@ -1,3 +1,4 @@
+from functools import lru_cache
 import torch
 import torch.nn as nn
 from pmlayer.torch.layers import HLattice
@@ -42,7 +43,7 @@ class HLLNetwork(nn.Module):
 
         Args:
             dim (int): Total number of input dimensions.
-            lattice_sizes (List[int]): Sizes of each lattice dimension.
+            lattice_sizes (List[int]): Size of the lattices
             increasing (List[int]): Indices of input dimensions that should be increasing.
             mlp_neurons (List[int]): Sizes of hidden layers in the MLP.
             activation (nn.Module): Activation function for the MLP.
@@ -51,7 +52,7 @@ class HLLNetwork(nn.Module):
             init_method (str): Weight initialization method for the MLP.
         """
         super(HLLNetwork, self).__init__()
-        self.dim = dim
+        self.input_size = dim
         self.device = device
         self.lattice_sizes = lattice_sizes
         self.increasing = increasing
@@ -62,6 +63,7 @@ class HLLNetwork(nn.Module):
         self.init_method = init_method
         self.model = self._build_model()
 
+    @lru_cache(maxsize=None)
     def _build_model(self) -> HLattice:
         """
         Build the underlying HLattice model.
@@ -69,7 +71,7 @@ class HLLNetwork(nn.Module):
         Returns:
             HLattice: The constructed HLattice model.
         """
-        input_len = self.dim - len(self.increasing)
+        input_len = self.input_size - len(self.increasing)
         output_len = torch.prod(torch.tensor(self.lattice_sizes)).item()
 
         ann = StandardMLP(
@@ -81,7 +83,7 @@ class HLLNetwork(nn.Module):
             init_method=self.init_method,
             output_activation=self.output_activation
         )
-        return HLattice(self.dim, torch.tensor(self.lattice_sizes), self.increasing, ann)
+        return HLattice(self.input_size, torch.tensor(self.lattice_sizes), self.increasing, ann)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """

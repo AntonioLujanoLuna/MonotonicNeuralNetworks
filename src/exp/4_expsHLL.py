@@ -2,8 +2,6 @@
 
 import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,7 +11,6 @@ from sklearn.metrics import mean_squared_error, accuracy_score
 from typing import Callable, Tuple, List, Dict, Union
 import optuna
 from schedulefree import AdamWScheduleFree
-
 from src.HierarchicalLatticeLayer import HLLNetwork
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
@@ -43,12 +40,14 @@ def create_model(config: Dict, input_size: int, task_type: str, seed: int, monot
                  device: torch.device) -> nn.Module:
     torch.manual_seed(seed)
     output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
+    lattice_sizes = [config["lattice_size"]] * len(monotonic_indices)
+    mlp_neurons = [config[f"mlp_neurons_{i}"] for i in range(2)]
 
     return HLLNetwork(
         dim=input_size,
-        lattice_sizes=config["lattice_sizes"],
+        lattice_sizes=lattice_sizes,
         increasing=monotonic_indices,
-        mlp_neurons=config["mlp_neurons"],
+        mlp_neurons=mlp_neurons,
         activation=nn.ReLU(),
         output_activation=output_activation,
         device=device
@@ -130,8 +129,9 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     def objective(trial):
         config = {
             "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
-            "lattice_sizes": [trial.suggest_int(f"lattice_size_{i}", 2, 5) for i in range(len(monotonic_indices))],
-            "mlp_neurons": [trial.suggest_categorical("mlp_neurons_{i}", [8, 16, 32, 64]) for i in range(2)],  # 2-layer MLP
+            "lattice_size": trial.suggest_int("lattice_size", 2, 4),
+            "mlp_neurons_0": trial.suggest_categorical("mlp_neurons_0", [4, 8, 16, 32]),
+            "mlp_neurons_1": trial.suggest_categorical("mlp_neurons_1", [4, 8, 16, 32]),
             "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
             "epochs": 100,
         }
@@ -242,8 +242,6 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
-    best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
-    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") due to pmlayer
     device = torch.device("cpu")
 
     for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
@@ -279,7 +277,6 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
     mono_metrics = {'random': [], 'train': [], 'val': []}
     # device = torch.device("cuda" if torch.cuda.is_available() else "cpu") due to pmlayer
     device = torch.device("cpu")
-    best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
 
     for i in range(n_repeats):
         np.random.seed(GLOBAL_SEED + i)
@@ -314,7 +311,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 50
+    n_trials = 1
     best_config = optimize_hyperparameters(X, y, task_type, monotonic_indices, sample_size=sample_size, n_trials=n_trials)
 
     if data_loader == load_blog_feedback:
@@ -334,8 +331,8 @@ def main():
     set_global_seed(GLOBAL_SEED)
 
     dataset_loaders = [
-        load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
-        load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
+        load_lev, load_auto_mpg, load_abalone, load_blog_feedback, load_boston_housing,
+        load_compas, load_era, load_esl, load_heart, load_swd, load_loan
     ]
 
     sample_size = 40000

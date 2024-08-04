@@ -28,31 +28,35 @@ class MonoDense(nn.Module):
         self.org_activation = activation
         self.is_convex = is_convex
         self.is_concave = is_concave
-        self.activation_weights = torch.tensor(activation_weights)
-        self.monotonicity_indicator = monotonicity_indicator
-
+        self.activation_weights = nn.Parameter(torch.tensor(activation_weights))
+        self.monotonicity_indicator = self.get_monotonicity_indicator(
+            monotonicity_indicator, self.in_features, self.units
+        )
         self.weight = nn.Parameter(torch.Tensor(units, in_features))
         self.bias = nn.Parameter(torch.Tensor(units))
+        self.reset_parameters()
+        self.convex_activation, self.concave_activation, self.saturated_activation = self.get_activation_functions(
+            self.org_activation)
 
-        self.built = False
-        self.build()
-
-    def build(self):
-        if not self.built:
-            self.monotonicity_indicator = self.get_monotonicity_indicator(
-                self.monotonicity_indicator, self.in_features, self.units
-            )
-            self.reset_parameters()
-            self.convex_activation, self.concave_activation, self.saturated_activation = self.get_activation_functions(
-                self.org_activation)
-            self.built = True
+    def to(self, device):
+        super().to(device)
+        self.activation_weights = self.activation_weights.to(device)
+        self.monotonicity_indicator = self.monotonicity_indicator.to(device)
+        return self
 
     def reset_parameters(self):
-        for params in self.parameters():
-            if len(params.shape) > 1:
-                init_weights(params, method=self.init_method)
-            else:
-                init_weights(params, method='zeros')
+        with torch.no_grad():
+            # Create new tensors for weight and bias
+            new_weight = torch.empty(self.weight.shape, device=self.weight.device)
+            new_bias = torch.empty(self.bias.shape, device=self.bias.device)
+
+            # Initialize the new tensors
+            init_weights(new_weight, method=self.init_method)
+            init_weights(new_bias, method='zeros')
+
+            # Create new nn.Parameter objects and assign them
+            self.weight = nn.Parameter(new_weight)
+            self.bias = nn.Parameter(new_bias)
 
 
     def get_config(self):
@@ -73,7 +77,11 @@ class MonoDense(nn.Module):
 
     @staticmethod
     def get_monotonicity_indicator(monotonicity_indicator, in_features, units):
-        monotonicity_indicator = torch.tensor(monotonicity_indicator, dtype=torch.float32)
+        if isinstance(monotonicity_indicator, torch.Tensor):
+            monotonicity_indicator = monotonicity_indicator.clone().detach().to(torch.float32)
+        else:
+            monotonicity_indicator = torch.tensor(monotonicity_indicator, dtype=torch.float32)
+
         if monotonicity_indicator.dim() < 2:
             monotonicity_indicator = monotonicity_indicator.reshape(-1, 1)
         elif monotonicity_indicator.dim() > 2:
@@ -169,22 +177,27 @@ class MonoDense(nn.Module):
         elif self.is_concave:
             normalized_activation_weights = torch.tensor([0.0, 1.0, 0.0], device=h.device)
         else:
-            normalized_activation_weights = self.activation_weights / self.activation_weights.sum()
+            # Add a small epsilon to avoid division by zero
+            epsilon = 1e-8
+            activation_weights_sum = self.activation_weights.sum() + epsilon
+            normalized_activation_weights = self.activation_weights / activation_weights_sum
 
-        s_convex = round(normalized_activation_weights[0].item() * self.units)
-        s_concave = round(normalized_activation_weights[1].item() * self.units)
+        # Ensure normalized_activation_weights are not NaN
+        normalized_activation_weights = torch.nan_to_num(normalized_activation_weights, nan=1.0 / 3)
+
+        s_convex = max(0, min(self.units, round(normalized_activation_weights[0].item() * self.units)))
+        s_concave = max(0, min(self.units - s_convex, round(normalized_activation_weights[1].item() * self.units)))
         s_saturated = self.units - s_convex - s_concave
 
         h_convex, h_concave, h_saturated = torch.split(h, [s_convex, s_concave, s_saturated], dim=-1)
 
-        y_convex = self.convex_activation(h_convex)
-        y_concave = self.concave_activation(h_concave)
-        y_saturated = self.saturated_activation(h_saturated)
+        y_convex = self.convex_activation(h_convex) if s_convex > 0 else torch.tensor([], device=h.device)
+        y_concave = self.concave_activation(h_concave) if s_concave > 0 else torch.tensor([], device=h.device)
+        y_saturated = self.saturated_activation(h_saturated) if s_saturated > 0 else torch.tensor([], device=h.device)
 
         y = torch.cat([y_convex, y_concave, y_saturated], dim=-1)
 
         return y
-
     def forward(self, x):
         modified_weight = self.apply_monotonicity_indicator_to_kernel(self.weight)
         h = F.linear(x, modified_weight, self.bias)
@@ -200,6 +213,7 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                  input_size: int,
                  hidden_sizes: List[int],
                  output_size: int,
+                 device: torch.device,
                  activation: str = 'elu',
                  monotonicity_indicator: List[int] = None,
                  final_activation: Optional[Callable] = None,
@@ -212,7 +226,7 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         self.hidden_sizes = hidden_sizes
         self.output_size = output_size
         self.activation = activation
-        self.monotonicity_indicator = monotonicity_indicator or [1] * input_size
+        self.monotonicity_indicator = nn.Parameter(torch.tensor(monotonicity_indicator, dtype=torch.float32), requires_grad=False)
         self.final_activation = final_activation
         self.dropout_rate = dropout_rate
         self.architecture_type = architecture_type
@@ -229,6 +243,21 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
             raise ValueError("architecture_type must be either 'type1' or 'type2'")
 
         self.init_weights(init_method)
+
+    def to(self, device):
+        super().to(device)
+        self.monotonicity_indicator = self.monotonicity_indicator.to(device)
+        if self.architecture_type == 'type1':
+            for layer in self.network:
+                layer.to(device)
+        elif self.architecture_type == 'type2':
+            for layer in self.network['mono_layers']:
+                layer.to(device)
+            if self.network['non_mono_mlp']:
+                self.network['non_mono_mlp'].to(device)
+            for layer in self.network['main_network']:
+                layer.to(device)
+        return self
 
     def _build_type1(self):
         layers = nn.ModuleList()
@@ -315,11 +344,17 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
     def init_weights(self, method):
         for module in self.modules():
             if isinstance(module, (nn.Linear, MonoDense)):
-                for params in module.parameters():
-                    if len(params.shape) > 1:
-                        init_weights(params, method=method)
+                for name, param in module.named_parameters():
+                    if param.dim() > 1:
+                        # Create a new tensor and initialize it
+                        new_param = torch.empty_like(param)
+                        init_weights(new_param, method=method)
+                        # Assign the new tensor to the parameter
+                        module._parameters[name] = nn.Parameter(new_param)
                     else:
-                        init_weights(params, method='zeros')
+                        # For biases, we can directly initialize them to zeros
+                        with torch.no_grad():
+                            param.zero_()
 
     def forward(self, x: torch.Tensor):
         if self.architecture_type == 'type1':
