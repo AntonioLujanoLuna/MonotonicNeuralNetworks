@@ -1,3 +1,5 @@
+from time import sleep
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,7 +7,6 @@ from typing import Optional, Tuple, Union, Callable, Literal, List
 from contextlib import contextmanager
 from functools import lru_cache
 
-from src.MLP import StandardMLP
 from src.utils import init_weights
 
 class MonoDense(nn.Module):
@@ -21,6 +22,8 @@ class MonoDense(nn.Module):
             init_method: Literal[
                 'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
     ):
+        if is_convex and is_concave:
+            raise ValueError("The model cannot be set to be both convex and concave (only linear functions are both).")
         super(MonoDense, self).__init__()
         self.in_features = in_features
         self.init_method = init_method
@@ -40,6 +43,8 @@ class MonoDense(nn.Module):
 
     def to(self, device):
         super().to(device)
+        self.weight = self.weight.to(device)
+        self.bias = self.bias.to(device)
         self.activation_weights = self.activation_weights.to(device)
         self.monotonicity_indicator = self.monotonicity_indicator.to(device)
         return self
@@ -199,6 +204,8 @@ class MonoDense(nn.Module):
 
         return y
     def forward(self, x):
+        device = x.device
+        self.monotonicity_indicator = self.monotonicity_indicator.to(device)
         modified_weight = self.apply_monotonicity_indicator_to_kernel(self.weight)
         h = F.linear(x, modified_weight, self.bias)
 
@@ -217,7 +224,6 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                  activation: str = 'elu',
                  monotonicity_indicator: List[int] = None,
                  final_activation: Optional[Callable] = None,
-                 dropout_rate: float = 0.0,
                  init_method: Literal[
                      'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform',
                  architecture_type: Literal['type1', 'type2'] = 'type1'):
@@ -226,11 +232,10 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         self.hidden_sizes = hidden_sizes
         self.output_size = output_size
         self.activation = activation
-        self.monotonicity_indicator = nn.Parameter(torch.tensor(monotonicity_indicator, dtype=torch.float32), requires_grad=False)
         self.final_activation = final_activation
-        self.dropout_rate = dropout_rate
+        self.device = device
+        self.monotonicity_indicator = nn.Parameter(torch.tensor(monotonicity_indicator, dtype=torch.float32), requires_grad=False)
         self.architecture_type = architecture_type
-
         if len(self.monotonicity_indicator) != input_size:
             raise ValueError(
                 f"Length of monotonicity_indicator ({len(self.monotonicity_indicator)}) must match input_size ({input_size})")
@@ -248,15 +253,11 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         super().to(device)
         self.monotonicity_indicator = self.monotonicity_indicator.to(device)
         if self.architecture_type == 'type1':
-            for layer in self.network:
-                layer.to(device)
+            self.network = self.network.to(device)
         elif self.architecture_type == 'type2':
-            for layer in self.network['mono_layers']:
-                layer.to(device)
-            if self.network['non_mono_mlp']:
-                self.network['non_mono_mlp'].to(device)
-            for layer in self.network['main_network']:
-                layer.to(device)
+            self.network['mono_layers'] = self.network['mono_layers'].to(device)
+            self.network['non_mono_layers'] = self.network['non_mono_layers'].to(device)
+            self.network['main_network'] = self.network['main_network'].to(device)
         return self
 
     def _build_type1(self):
@@ -291,7 +292,7 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
 
     def _build_type2(self):
         mono_layers = nn.ModuleList()
-        non_mono_features = []
+        non_mono_layers = nn.ModuleList()
 
         for i, indicator in enumerate(self.monotonicity_indicator):
             if indicator != 0:
@@ -299,41 +300,40 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                     in_features=1,
                     units=self.hidden_sizes[0],
                     activation=self.activation,
-                    monotonicity_indicator=indicator
+                    monotonicity_indicator=torch.tensor([indicator])
                 ))
             else:
-                non_mono_features.append(i)
+                non_mono_layers.append(nn.Sequential(
+                    nn.Linear(1, self.hidden_sizes[0]),
+                    self._get_activation_layer(self.activation)
+                ))
 
-        non_mono_input_size = len(non_mono_features)
-        if non_mono_input_size > 0:
-            non_mono_mlp = StandardMLP(
-                input_size=non_mono_input_size,
-                hidden_sizes=[self.hidden_sizes[0]],
-                output_size=self.hidden_sizes[0],
-                activation=self._get_activation(self.activation),
-                dropout_rate=self.dropout_rate
-            )
-        else:
-            non_mono_mlp = None
+        main_input_size = self.hidden_sizes[0] * len(self.monotonicity_indicator)
 
-        main_input_size = self.hidden_sizes[0] * (len(mono_layers) + (1 if non_mono_mlp else 0))
-        main_network = nn.ModuleList([
-            MonoDense(
-                in_features=main_input_size if i == 0 else self.hidden_sizes[i - 1],
-                units=size,
-                activation=self.activation if i < len(self.hidden_sizes) - 1 else None,
+        main_network = nn.ModuleList()
+
+        for i in range(1, len(self.hidden_sizes)):
+            main_network.append(MonoDense(
+                in_features=self.hidden_sizes[i - 1] if i != 1 else main_input_size,
+                units=self.hidden_sizes[i],
+                activation=self.activation,
                 monotonicity_indicator=1
-            ) for i, size in enumerate(self.hidden_sizes[1:] + [self.output_size])
-        ])
+            ))
+
+        main_network.append(MonoDense(
+            in_features=self.hidden_sizes[-1],
+            units=self.output_size,
+            activation=None,
+            monotonicity_indicator=1
+        ))
 
         return nn.ModuleDict({
             'mono_layers': mono_layers,
-            'non_mono_mlp': non_mono_mlp,
-            'main_network': main_network,
-            'non_mono_indices': non_mono_features
+            'non_mono_layers': non_mono_layers,
+            'main_network': main_network
         })
 
-    def _get_activation(self, activation):
+    def _get_activation_layer(self, activation):
         if activation == 'elu':
             return nn.ELU()
         elif activation == 'relu':
@@ -358,26 +358,33 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
 
     def forward(self, x: torch.Tensor):
         if self.architecture_type == 'type1':
+            # Process the input through all layers sequentially
             for layer in self.network:
                 x = layer(x)
         elif self.architecture_type == 'type2':
-            mono_outputs = [layer(x[:, i].unsqueeze(1)) for i, layer in enumerate(self.network['mono_layers'])]
-
-            if self.network['non_mono_mlp']:
-                non_mono_input = x[:, self.network['non_mono_indices']]
-                non_mono_output = self.network['non_mono_mlp'](non_mono_input)
-                all_outputs = mono_outputs + [non_mono_output]
+            monotonic_mask = (self.monotonicity_indicator != 0)
+            monotonic_inputs = x[:, monotonic_mask]
+            non_monotonic_inputs = x[:, ~monotonic_mask]
+            if monotonic_inputs.size(1) > 0:
+                mono_outputs = torch.cat([
+                    layer(monotonic_inputs[:, i:i + 1])
+                    for i, layer in enumerate(self.network['mono_layers'])
+                ], dim=1)
             else:
-                all_outputs = mono_outputs
-
-            x = torch.cat(all_outputs, dim=-1)
-
+                mono_outputs = torch.tensor([], device=x.device)
+            if non_monotonic_inputs.size(1) > 0:
+                non_mono_outputs = torch.cat([
+                    layer(non_monotonic_inputs[:, i:i + 1])
+                    for i, layer in enumerate(self.network['non_mono_layers'])
+                ], dim=1)
+            else:
+                non_mono_outputs = torch.tensor([], device=x.device)
+            x = torch.cat((mono_outputs, non_mono_outputs), dim=1)
             for layer in self.network['main_network']:
                 x = layer(x)
 
         if self.final_activation:
             x = self.final_activation(x)
-
         return x
 
     def count_parameters(self):

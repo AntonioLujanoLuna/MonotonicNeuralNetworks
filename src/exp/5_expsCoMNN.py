@@ -115,7 +115,7 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
               val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int], architecture_type: str) -> float:
-    hidden_sizes_options = generate_layer_combinations(min_layers=1, max_layers=3, units=[4, 8, 16, 32, 64])
+    hidden_sizes_options = generate_layer_combinations(min_layers=2, max_layers=3, units=[4, 8, 16, 32, 64])
     config = {
         "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
         "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes_options)),
@@ -158,7 +158,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     try:
         n_jobs = -1
         study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type, monotonic_indices, architecture_type),
-                       n_trials=n_trials, show_progress_bar=False, n_jobs=n_jobs)
+                       n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
     except ValueError as e:
@@ -292,8 +292,8 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         train_loader = DataLoader(train_dataset, batch_size=best_config["batch_size"], shuffle=True, generator=g)
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
-        monotonicity_indicator = create_monotonicity_indicator(monotonic_indices, X.shape[1])
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold, architecture_type,
+        monotonicity_indicator = create_monotonicity_indicator(monotonic_indices, X_test.shape[1])
+        model = create_model(best_config, X_test.shape[1], task_type, GLOBAL_SEED + i, architecture_type,
                              monotonicity_indicator, device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
@@ -343,7 +343,8 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
-    architecture_types = ["type1", "type2"]
+    # architecture_types = ["type1", "type2"]
+    architecture_types = ["type2"]
     sample_size = 40000
 
     for architecture_type in architecture_types:
