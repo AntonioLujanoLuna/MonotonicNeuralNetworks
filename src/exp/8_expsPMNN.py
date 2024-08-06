@@ -348,7 +348,7 @@ def main():
     ]
 
     sample_size = 40000
-    results_file = "expsMLP.csv"
+    results_file = "expsPMNN.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:

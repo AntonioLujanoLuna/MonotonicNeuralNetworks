@@ -30,7 +30,6 @@ class LMNNetwork(nn.Module):
             output_size: int = 1,
             monotone_constraints: Optional[List[int]] = None,
             lipschitz_constant: float = 1.0,
-            sigma: float = 1.0,
             output_activation: nn.Module = nn.Identity(),
             init_method: Literal[
                 'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
@@ -45,7 +44,6 @@ class LMNNetwork(nn.Module):
             monotone_constraints (Optional[List[int]]): List of monotonicity constraints for each input feature.
                 Use 1 for increasing, -1 for decreasing, and 0 for unrestricted. Default is None (all unrestricted).
             lipschitz_constant (float): Lipschitz constant for the network (default is 1.0).
-            sigma (float): Sigma value for the MonotonicWrapper (default is 1.0).
             output_activation (nn.Module): Activation function for the output layer (default is nn.Identity()).
             init_method (str): Weight initialization method (default is 'xavier_uniform').
         """
@@ -55,11 +53,10 @@ class LMNNetwork(nn.Module):
         self.output_size = output_size
         self.monotone_constraints = monotone_constraints
         self.lipschitz_constant = lipschitz_constant
-        self.sigma = sigma
         self.output_activation = output_activation
         self.init_method = init_method
         self.model = self._build_model()
-        self._init_weights(self.model)
+        # self._init_weights(self.model)
         self.wrapped_model = lmn.MonotonicWrapper(
             self.model,
             lipschitz_const=self.lipschitz_constant,
@@ -82,10 +79,9 @@ class LMNNetwork(nn.Module):
             else:
                 layers.append(lmn.direct_norm(nn.Linear(layer_sizes[i], layer_sizes[i + 1]), kind="inf"))
 
-            if i < len(layer_sizes) - 2:  # Don't add activation after the last layer
-                layers.append(lmn.GroupSort(layer_sizes[i + 1] // 2))
+            if i < len(layer_sizes) - 2:
+                layers.append(lmn.GroupSort(2))
 
-        layers.append(self.output_activation)
         return nn.Sequential(*layers)
 
     def _init_weights(self, model: nn.Module) -> None:
@@ -121,13 +117,3 @@ class LMNNetwork(nn.Module):
             int: The total number of trainable parameters.
         """
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-    def init_weights(self, method: Literal['xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal']) -> None:
-        """
-        Initialize network parameters.
-
-        Args:
-            method (str): Weight initialization method.
-        """
-        self._init_weights(self.model)
-        self.init_method = method

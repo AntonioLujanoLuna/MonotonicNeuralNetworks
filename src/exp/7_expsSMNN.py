@@ -331,7 +331,7 @@ def main():
     ]
 
     sample_size = 40000
-    results_file = "expsScalableMonotonic.csv"
+    results_file = "expsSMNN.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:
