@@ -115,7 +115,7 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
               val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int], architecture_type: str) -> float:
-    hidden_sizes_options = generate_layer_combinations(min_layers=2, max_layers=3, units=[4, 8, 16, 32, 64])
+    hidden_sizes_options = generate_layer_combinations(min_layers=2, max_layers=3, units=[4, 8, 16, 32])
     config = {
         "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
         "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes_options)),
@@ -348,7 +348,7 @@ def main():
     sample_size = 40000
 
     for architecture_type in architecture_types:
-        results_file = f"expsMLP_{architecture_type}.csv"
+        results_file = f"expsCoMNN_{architecture_type}.csv"
 
         # Create the CSV file and write the header
         with open(results_file, 'w', newline='') as f:

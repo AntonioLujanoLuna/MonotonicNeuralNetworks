@@ -2,8 +2,6 @@
 
 import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -39,16 +37,20 @@ def get_task_type(data_loader: Callable) -> str:
     return "regression" if data_loader in regression_tasks else "classification"
 
 
-def create_model(config: Dict, input_size: int, seed: int) -> LMNNetwork:
+def create_model(config: Dict, input_size: int, seed: int, task_type: str, monotonic_indices: List[int]) -> LMNNetwork:
     torch.manual_seed(seed)
-    monotone_constraints = get_reordered_monotonic_indices(config.get("dataset_name", ""))
+    output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
+    monotone_constraints = [0] * input_size
+    for idx in monotonic_indices:
+        if idx < input_size:
+            monotone_constraints[idx] = 1
     return LMNNetwork(
         input_size=input_size,
         hidden_sizes=config["hidden_sizes"],
         output_size=1,
         monotone_constraints=monotone_constraints,
+        output_activation=output_activation,
         lipschitz_constant=config.get("lipschitz_constant", 1.0),
-        sigma=config.get("sigma", 1.0)
     )
 
 def train_model(model: nn.Module, optimizer, train_loader: DataLoader, val_loader: DataLoader,
@@ -111,7 +113,7 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
         return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
-              val_dataset: torch.utils.data.Subset, task_type: str) -> float:
+              val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int]) -> float:
     hidden_sizes_options = generate_layer_combinations(min_layers=2, max_layers=2, units=[8, 16, 32, 64])
     config = {
         "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
@@ -119,7 +121,7 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
         "epochs": 100,
         "lipschitz_constant": trial.suggest_float("lipschitz_constant", 0.5, 2.0),
-        "sigma": trial.suggest_categorical("sigma", [1, 2]),
+        #"lipschitz_constant": 1.0,
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -131,14 +133,14 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
     val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
 
     input_size = dataset.tensors[0].shape[1]
-    model = create_model(config, input_size, GLOBAL_SEED).to(device)
+    model = create_model(config, input_size, GLOBAL_SEED, task_type, monotonic_indices).to(device)
     optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
     val_metric = train_model(model, optimizer, train_loader, val_loader, config, task_type, device)
 
     return val_metric
 
 
-def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, n_trials: int = 30,
+def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monotonic_indices: List[int], n_trials: int = 30,
                              sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
     if len(X) > sample_size:
         np.random.seed(GLOBAL_SEED)
@@ -157,7 +159,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, n_tri
     try:
         # n_jobs = max(1, multiprocessing.cpu_count() // 2)
         n_jobs = -1
-        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type),
+        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type, monotonic_indices),
                        n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
@@ -257,7 +259,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], GLOBAL_SEED + fold).to(device)
+        model = create_model(best_config, X.shape[1], GLOBAL_SEED + fold, task_type, monotonic_indices).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
@@ -292,10 +294,10 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X_train.shape[1], GLOBAL_SEED + i).to(device)
+        model = create_model(best_config, X_train.shape[1], GLOBAL_SEED + i, task_type, monotonic_indices).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
-        _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
+        _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)
 
         val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader,
                                                                    task_type,
@@ -313,7 +315,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
     n_trials = 50
-    best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials)
+    best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
 
     if data_loader == load_blog_feedback:
         scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, best_config, task_type, monotonic_indices)
@@ -338,7 +340,7 @@ def main():
     ]
 
     sample_size = 40000
-    results_file = "expsMLP.csv"
+    results_file = "expsLMNN.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:
