@@ -39,7 +39,8 @@ def get_task_type(data_loader: Callable) -> str:
 
 def create_model(config: Dict, input_size: int, seed: int, task_type: str, monotonic_indices: List[int]) -> LMNNetwork:
     torch.manual_seed(seed)
-    output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
+    # output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
+    output_activation = nn.Identity() # logitloss
     monotone_constraints = [0] * input_size
     for idx in monotonic_indices:
         if idx < input_size:
@@ -104,13 +105,15 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
     for batch_X, batch_y in data_loader:
         batch_X, batch_y = batch_X.to(device), batch_y.to(device)
         outputs = model(batch_X)
+        if task_type == "classification":
+            outputs = nn.functional.sigmoid(outputs)  # Apply sigmoid for classification
         predictions.extend(outputs.cpu().numpy())
         true_values.extend(batch_y.cpu().numpy())
 
     if task_type == "regression":
         return np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
+        return 1 - accuracy_score(np.squeeze(true_values), (np.squeeze(predictions) > 0.5))
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
               val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int]) -> float:
@@ -120,8 +123,8 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
         "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes_options)),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
         "epochs": 100,
-        "lipschitz_constant": trial.suggest_float("lipschitz_constant", 0.5, 2.0),
-        #"lipschitz_constant": 1.0,
+        # "lipschitz_constant": trial.suggest_float("lipschitz_constant", 1.0, 2.0), lip < 0 -> mono check != 0
+        "lipschitz_constant": 1.0,
     }
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -192,10 +195,8 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
             for batch_X, batch_y in loader:
                 batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 outputs = model(batch_X)
-
                 data_list.append(batch_X.cpu())
                 pred_list.append(outputs.cpu())
-
                 if loader == val_loader:
                     predictions.extend(outputs.cpu().numpy())
                     true_values.extend(batch_y.cpu().numpy())
@@ -207,7 +208,8 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     if task_type == "regression":
         metric = np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        metric = 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
+        outputs = torch.sigmoid(model(val_data.to(device))).detach().cpu().numpy()
+        metric = 1 - accuracy_score(np.squeeze(true_values), (np.squeeze(outputs) > 0.5).astype(int))
 
     n_points = min(1000, len(val_loader.dataset))
 
@@ -339,8 +341,10 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
+    dataset_loaders = [load_compas, load_heart, load_loan]
+
     sample_size = 40000
-    results_file = "expsLMNN.csv"
+    results_file = "expsLMNN_clas.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:

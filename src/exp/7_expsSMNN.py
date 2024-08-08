@@ -1,9 +1,7 @@
-# expsMLP
+# expsSMNN
 
 import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
@@ -111,7 +109,7 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
               val_dataset: torch.utils.data.Subset, task_type: str, monotonic_indices: List[int]) -> float:
     config = {
         "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
-        "n_layers": trial.suggest_categorical("n_layers", [2]),
+        "n_layers": trial.suggest_int("n_layers", 2, 3),
         "unit_size": trial.suggest_categorical("unit_size", [8, 16, 32, 64]),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
         "epochs": 100,
@@ -152,7 +150,7 @@ def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monot
     try:
         # n_jobs = max(1, multiprocessing.cpu_count() // 2)
         n_jobs = -1
-        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type),
+        study.optimize(lambda trial: objective(trial, dataset, train_dataset, val_dataset, task_type, monotonic_indices),
                        n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
         best_params = study.best_params
         best_params["epochs"] = 100
@@ -184,10 +182,8 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
             for batch_X, batch_y in loader:
                 batch_X, batch_y = batch_X.to(device), batch_y.to(device)
                 outputs = model(batch_X)
-
                 data_list.append(batch_X.cpu())
                 pred_list.append(outputs.cpu())
-
                 if loader == val_loader:
                     predictions.extend(outputs.cpu().numpy())
                     true_values.extend(batch_y.cpu().numpy())
@@ -199,7 +195,8 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     if task_type == "regression":
         metric = np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        metric = 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
+        outputs = torch.sigmoid(model(val_data.to(device))).detach().cpu().numpy()
+        metric = 1 - accuracy_score(np.squeeze(true_values), (np.squeeze(outputs) > 0.5).astype(int))
 
     n_points = min(1000, len(val_loader.dataset))
 
@@ -270,7 +267,6 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
     scores = []
     mono_metrics = {'random': [], 'train': [], 'val': []}
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    best_config["hidden_sizes"] = ast.literal_eval(best_config["hidden_sizes"])
 
     for i in range(n_repeats):
         np.random.seed(GLOBAL_SEED + i)
@@ -288,7 +284,7 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         model = create_model(best_config, X_train.shape[1], GLOBAL_SEED + i, monotonic_indices).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
-        _ = train_model(model, train_loader, test_loader, best_config, task_type, device)
+        _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)
 
         val_metric, fold_mono_metrics = evaluate_with_monotonicity(model, optimizer, train_loader, test_loader,
                                                                    task_type,
@@ -330,8 +326,10 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
+    dataset_loaders = [load_compas, load_heart, load_loan]
+
     sample_size = 40000
-    results_file = "expsSMNN.csv"
+    results_file = "expsSMNN_class.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:
@@ -346,7 +344,6 @@ def main():
 
     for data_loader in dataset_loaders:
         task_type = get_task_type(data_loader)
-        monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
         scores, best_config, mono_metrics, n_params = process_dataset(data_loader, sample_size)
         metric_name = "RMSE" if task_type == "regression" else "Error Rate"
 
