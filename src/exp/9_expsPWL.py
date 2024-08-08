@@ -1,4 +1,4 @@
-# expsMLP
+# expsPWL
 
 import ast
 import csv

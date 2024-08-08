@@ -204,7 +204,7 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     if task_type == "regression":
         metric = np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        metric = 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
+        metric = 1 - accuracy_score(np.squeeze(true_values), (np.squeeze(predictions) > 0).astype(int))
 
     n_points = min(1000, len(val_loader.dataset))
 

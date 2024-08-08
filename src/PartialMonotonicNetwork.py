@@ -2,8 +2,8 @@ import torch
 import torch.nn as nn
 import torch.autograd as autograd
 from typing import List, Literal, Union
-from MLP import StandardMLP
-from WeightsConstrainedMLP import WeightsConstrainedMLP
+from src.MLP import StandardMLP
+from src.WeightsConstrainedMLP import WeightsConstrainedMLP
 
 class PartialMonotonicNetwork(nn.Module):
     """
@@ -58,6 +58,7 @@ class PartialMonotonicNetwork(nn.Module):
         self.monotonic_indices = monotonic_indices
         self.non_monotonic_indices = [i for i in range(input_size) if i not in monotonic_indices]
         self.p = p
+        self.input_size = input_size
 
         # Convert string activations to nn.Module
         activation = self._get_activation(activation)
@@ -156,11 +157,13 @@ class PartialMonotonicNetwork(nn.Module):
         """
         monotonic_inputs = x[:, self.monotonic_indices]
         monotonic_inputs.requires_grad_(True)
-        output = self.forward(x)
-        monotonic_gradients = autograd.grad(outputs=output, inputs=monotonic_inputs,
-                                            grad_outputs=torch.ones_like(output),
+        mono_output = self.mono_network(monotonic_inputs)
+        non_mono_output = self.non_mono_network(x[:, self.non_monotonic_indices])
+        combined_features = torch.cat((mono_output, non_mono_output), dim=1)
+        output = self.combined_network(combined_features)
+        monotonic_gradients = autograd.grad(outputs=output.sum(), inputs=monotonic_inputs,
                                             create_graph=True, retain_graph=True)[0]
-        pwl = torch.sum(torch.max(torch.zeros_like(monotonic_gradients), -monotonic_gradients))
+        pwl = torch.sum(torch.relu(-monotonic_gradients))
         return pwl
 
     def compute_loss(self, x: torch.Tensor, y: torch.Tensor, loss_fn: nn.Module) -> torch.Tensor:

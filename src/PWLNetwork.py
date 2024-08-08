@@ -150,7 +150,7 @@ def pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torc
         return empirical_loss
 
     # Compute regularization (combines both approaches)
-    grad_penalty = torch.relu(-grad_wrt_monotonic_input + b) ** 2
+    grad_penalty = torch.relu(-grad_wrt_monotonic_input + b) # ** 2
     regularization = torch.max(torch.sum(grad_penalty, dim=1))
 
     return empirical_loss + monotonicity_weight * regularization

@@ -29,7 +29,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
     class ReLUUnit(ActivationLayer):
         def __init__(self, in_features: int, out_features: int):
             super().__init__(in_features, out_features)
-            init_weights(self, method='xavier_uniform')
+            init_weights(self.weight, method='xavier_uniform')
             init_weights(self.bias, method='truncated_normal', std=0.5)
 
         def forward(self, x):
@@ -38,7 +38,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
     class ConfluenceUnit(ActivationLayer):
         def __init__(self, in_features: int, out_features: int):
             super().__init__(in_features, out_features)
-            init_weights(self, method='xavier_uniform')
+            init_weights(self.weight, method='xavier_uniform')
             init_weights(self.bias, method='truncated_normal', std=0.5)
 
         def forward(self, x):
@@ -72,7 +72,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
         self.conf_unit_size = conf_unit_size
 
         self.exp_units = nn.ModuleList([
-            self.ExpUnit(self.mono_size if i == 0 else exp_unit_size[i - 1], exp_unit_size[i])
+            self.ExpUnit(self.mono_size if i == 0 else exp_unit_size[i-1] + conf_unit_size[i-1], exp_unit_size[i])
             for i in range(len(exp_unit_size))
         ])
 
@@ -86,9 +86,7 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             for i in range(len(conf_unit_size))
         ])
 
-        self.fc_layer = self.FCLayer(
-            exp_unit_size[-1] + relu_unit_size[-1], 1
-        )
+        self.fc_layer = self.FCLayer(exp_unit_size[-1] + conf_unit_size[-1] + relu_unit_size[-1], 1)
 
     def forward(self, x):
         """
