@@ -1,0 +1,15 @@
+Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,NumofParameters,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std
+load_abalone,regression,RMSE,0.0826,0.0035,17729,"{""lr"": 0.0985484315109114, ""n_layers"": 2, ""unit_size"": 64, ""batch_size"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_auto_mpg,regression,RMSE,0.0800,0.0042,1281,"{""lr"": 0.04182333206391617, ""n_layers"": 2, ""unit_size"": 16, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_blog_feedback,regression,RMSE,0.1301,0.0008,22017,"{""lr"": 0.0020665810675898223, ""n_layers"": 2, ""unit_size"": 32, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_boston_housing,regression,RMSE,0.0909,0.0098,2625,"{""lr"": 0.021139134334419035, ""n_layers"": 3, ""unit_size"": 16, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_compas,classification,Error Rate,0.6755,0.0142,17601,"{""lr"": 0.009672798349063807, ""n_layers"": 2, ""unit_size"": 64, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_era,regression,RMSE,0.1967,0.0046,17217,"{""lr"": 0.038405600730841156, ""n_layers"": 2, ""unit_size"": 64, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_esl,regression,RMSE,0.0704,0.0043,17217,"{""lr"": 0.03090748673918185, ""n_layers"": 2, ""unit_size"": 64, ""batch_size"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_heart,classification,Error Rate,0.8183,0.0496,2625,"{""lr"": 0.06531151157968648, ""n_layers"": 3, ""unit_size"": 16, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_lev,regression,RMSE,0.1639,0.0156,4513,"{""lr"": 0.07820813636953626, ""n_layers"": 2, ""unit_size"": 32, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_swd,regression,RMSE,0.2070,0.0059,17793,"{""lr"": 0.06531220835619628, ""n_layers"": 2, ""unit_size"": 64, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+
+load_compas,classification,Error Rate,0.3205,0.0078,8897,"{""lr"": 0.007535461798864989, ""n_layers"": 3, ""unit_size"": 32, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_heart,classification,Error Rate,0.1585,0.0429,9345,"{""lr"": 0.050573010229274615, ""n_layers"": 3, ""unit_size"": 32, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_loan,classification,Error Rate,0.3469,0.0011,36929,"{""lr"": 0.006088227699842415, ""n_layers"": 3, ""unit_size"": 64, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
