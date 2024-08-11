@@ -1,25 +1,20 @@
 # expsPWL
 
-import ast
 import csv
-import multiprocessing
-
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score
-from typing import Callable, Tuple, List, Dict, Union
-import optuna
+from typing import Callable, Tuple, List, Dict
 from schedulefree import AdamWScheduleFree
 from src.MLP import StandardMLP
 from src.PWLNetwork import pwl
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
-from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters, \
-    generate_layer_combinations
+from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters
 
 GLOBAL_SEED = 42
 
@@ -38,6 +33,20 @@ def get_task_type(data_loader: Callable) -> str:
     regression_tasks = [load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                         load_era, load_esl, load_lev, load_swd]
     return "regression" if data_loader in regression_tasks else "classification"
+
+BEST_CONFIGS = {
+    "load_abalone": {"lr": 0.04428367403666013, "hidden_sizes": [8, 64], "batch_size": 64, "epochs": 100},
+    "load_auto_mpg": {"lr": 0.09811656676228442, "hidden_sizes": [32, 64], "batch_size": 16, "epochs": 100},
+    "load_blog_feedback": {"lr": 0.020918413149522606, "hidden_sizes": [16, 16], "batch_size": 16, "epochs": 100},
+    "load_boston_housing": {"lr": 0.0013983973589903281, "hidden_sizes": [64, 64], "batch_size": 16, "epochs": 100},
+    "load_compas": {"lr": 0.006741349738796535, "hidden_sizes": [8, 64], "batch_size": 128, "epochs": 100},
+    "load_era": {"lr": 0.0914834247268068, "hidden_sizes": [16, 32], "batch_size": 32, "epochs": 100},
+    "load_esl": {"lr": 0.05661003724844464, "hidden_sizes": [32, 64], "batch_size": 64, "epochs": 100},
+    "load_heart": {"lr": 0.09185139694044091, "hidden_sizes": [32, 16], "batch_size": 128, "epochs": 100},
+    "load_lev": {"lr": 0.022946670310782055, "hidden_sizes": [32, 64], "batch_size": 16, "epochs": 100},
+    "load_swd": {"lr": 0.07005056625746753, "hidden_sizes": [32, 64], "batch_size": 128, "epochs": 100},
+    "load_loan": {"lr": 0.04249576921544568, "hidden_sizes": [16, 64], "batch_size": 32, "epochs": 100}
+}
 
 
 def create_model(config: Dict, input_size: int, task_type: str, seed: int) -> StandardMLP:
@@ -105,73 +114,6 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
         return np.sqrt(mean_squared_error(true_values, predictions))
     else:
         return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
-
-
-# Modified optimize_hyperparameters function
-def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monotonic_indices: List[int],
-                             n_trials: int = 30,
-                             sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
-    if len(X) > sample_size:
-        np.random.seed(GLOBAL_SEED)
-        indices = np.random.choice(len(X), sample_size, replace=False)
-        X_sampled, y_sampled = X[indices], y[indices]
-    else:
-        X_sampled, y_sampled = X, y
-
-    dataset = TensorDataset(torch.FloatTensor(X_sampled), torch.FloatTensor(y_sampled).reshape(-1, 1))
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size],
-                                              generator=torch.Generator().manual_seed(GLOBAL_SEED))
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    def objective(trial):
-        hidden_sizes = generate_layer_combinations(min_layers=2, max_layers=2, units=[8, 16, 32, 64])
-        config = {
-            "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
-            "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes)),
-            "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
-            "epochs": 100,
-            "monotonicity_weight": 1.0,
-        }
-
-        g = torch.Generator()
-        g.manual_seed(GLOBAL_SEED)
-
-        train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, generator=g)
-        val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
-
-        model = create_model(config, X.shape[1], task_type, GLOBAL_SEED).to(device)
-        optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
-
-        # Train the model using PWL
-        _ = train_model(model, optimizer, train_loader, val_loader, config, task_type, device, monotonic_indices)
-
-        # Evaluate using MSE or error rate
-        val_loss = evaluate_model(model, optimizer, val_loader, task_type, device)
-
-        return val_loss
-
-    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
-
-    try:
-        # n_jobs = max(1, multiprocessing.cpu_count() // 2)
-        n_jobs = -1
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
-        best_params = study.best_params
-        best_params["epochs"] = 100
-    except ValueError as e:
-        print(f"Optimization failed: {e}")
-        best_params = {
-            "lr": 0.001,
-            "hidden_sizes": [32, 32],
-            "batch_size": 32,
-            "epochs": 100,
-            "monotonicity_weight": 1.0
-        }
-
-    return best_params
 
 
 # Modified cross_validate function
@@ -277,26 +219,46 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
     return scores, mono_metrics, n_params
 
 
-def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[List[float], Dict, Dict, int]:
+def process_dataset(data_loader: Callable, results_file: str) -> None:
     print(f"\nProcessing dataset: {data_loader.__name__}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 50
-    best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
 
-    if data_loader == load_blog_feedback:
-        scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, best_config, task_type, monotonic_indices)
-    else:
-        X = np.vstack((X, X_test))
-        y = np.concatenate((y, y_test))
-        scores, mono_metrics, n_params = cross_validate(X, y, best_config, task_type, monotonic_indices)
+    best_config = BEST_CONFIGS[data_loader.__name__]
+    mono_weights = [0.1, 0.25, 0.5, 0.75, 0.9]
 
-    avg_mono_metrics = {
-        key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
-    }
+    for weight in mono_weights:
+        current_config = best_config.copy()
+        current_config["monotonicity_weight"] = weight
 
-    return scores, best_config, avg_mono_metrics, n_params
+        if data_loader == load_blog_feedback:
+            scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, current_config, task_type,
+                                                                 monotonic_indices)
+        else:
+            X_combined = np.vstack((X, X_test))
+            y_combined = np.concatenate((y, y_test))
+            scores, mono_metrics, n_params = cross_validate(X_combined, y_combined, current_config, task_type,
+                                                            monotonic_indices)
+
+        avg_mono_metrics = {
+            key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
+        }
+
+        metric_name = "RMSE" if task_type == "regression" else "Error Rate"
+
+        # Write results to CSV file
+        write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
+                             np.mean(scores), np.std(scores), current_config, avg_mono_metrics, n_params)
+
+        # Print results to console (optional)
+        print(f"\nResults for {data_loader.__name__} with monotonicity weight {weight}:")
+        print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
+        print(f"Configuration: {current_config}")
+        print(f"Number of parameters: {n_params}")
+        print("Monotonicity violation rates:")
+        for key, (mean, std) in avg_mono_metrics.items():
+            print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
 
 
 def main():
@@ -307,7 +269,6 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
     ]
 
-    sample_size = 40000
     results_file = "expsPWL.csv"
 
     # Create the CSV file and write the header
@@ -322,23 +283,7 @@ def main():
         ])
 
     for data_loader in dataset_loaders:
-        task_type = get_task_type(data_loader)
-        scores, best_config, mono_metrics, n_params = process_dataset(data_loader, sample_size)
-        metric_name = "RMSE" if task_type == "regression" else "Error Rate"
-
-        # Write results to CSV file
-        write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
-                             np.mean(scores), np.std(scores), best_config, mono_metrics, n_params)
-
-
-        # Print results to console (optional, you can remove this if you only want file output)
-        print(f"\nResults for {data_loader.__name__}:")
-        print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
-        print(f"Best configuration: {best_config}")
-        print(f"Number of parameters: {n_params}")
-        print("Monotonicity violation rates:")
-        for key, (mean, std) in mono_metrics.items():
-            print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
+        process_dataset(data_loader, results_file)
 
 if __name__ == '__main__':
     main()
