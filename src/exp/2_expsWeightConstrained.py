@@ -5,6 +5,7 @@ import csv
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.utils as utils
 from torch.utils.data import TensorDataset, DataLoader, random_split
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score
@@ -37,21 +38,20 @@ def get_task_type(data_loader: Callable) -> str:
     return "regression" if data_loader in regression_tasks else "classification"
 
 
-def create_model(config: Dict, input_size: int, task_type: str, seed: int) -> WeightsConstrainedMLP:
+def create_model(config: Dict, input_size: int, seed: int) -> WeightsConstrainedMLP:
     torch.manual_seed(seed)
-    output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid()
+    # output_activation = nn.Identity() if task_type == "regression" else nn.Sigmoid() to enforce stability use logits
     return WeightsConstrainedMLP(
         input_size=input_size,
         hidden_sizes=config["hidden_sizes"],
         output_size=1,
         activation=nn.ReLU(),
-        output_activation=output_activation,
     )
 
 def train_model(model: nn.Module, optimizer, train_loader: DataLoader, val_loader: DataLoader,
                 config: Dict, task_type: str, device: torch.device) -> float:
-    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
-
+    criterion = nn.MSELoss() if task_type == "regression" else nn.BCEWithLogitsLoss()
+    clip_value = config.get("clip_value", 1.0)  # Default to 1.0 if not specified
     best_val_loss = float('inf')
     patience = 15
     patience_counter = 0
@@ -68,6 +68,7 @@ def train_model(model: nn.Module, optimizer, train_loader: DataLoader, val_loade
                 outputs = model(batch_X)
                 loss = criterion(outputs, batch_y)
                 loss.backward()
+                utils.clip_grad_norm_(model.parameters(), clip_value)
                 return loss
 
             optimizer.step(closure)
@@ -105,7 +106,8 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
     if task_type == "regression":
         return np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
+        binary_preds = (torch.sigmoid(torch.tensor(predictions)) > 0.5).numpy()
+        return 1 - accuracy_score(np.squeeze(true_values), binary_preds)
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
               val_dataset: torch.utils.data.Subset, task_type: str) -> float:
@@ -113,7 +115,7 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
     config = {
         "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
         "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes_options)),
-
+        "clip_value": trial.suggest_float("clip_value", 0.1, 10.0, log=True),
         "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
         "epochs": 100,
     }
@@ -128,7 +130,7 @@ def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.
 
     # Use the original dataset to get the input size
     input_size = dataset.tensors[0].shape[1]
-    model = create_model(config, input_size, task_type, GLOBAL_SEED).to(device)
+    model = create_model(config, input_size, GLOBAL_SEED).to(device)
     optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
     val_metric = train_model(model, optimizer, train_loader, val_loader, config, task_type, device)
 
@@ -202,7 +204,8 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     if task_type == "regression":
         metric = np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        metric = 1 - accuracy_score(np.squeeze(true_values), (np.squeeze(predictions) > 0).astype(int))
+        binary_preds = (torch.sigmoid(torch.tensor(predictions)) > 0.5).numpy()
+        metric = 1 - accuracy_score(np.squeeze(true_values), binary_preds)
 
     n_points = min(1000, len(val_loader.dataset))
 
@@ -254,7 +257,7 @@ def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: s
         val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
         val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold).to(device)
+        model = create_model(best_config, X.shape[1], GLOBAL_SEED + fold).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
         _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device)
@@ -289,7 +292,7 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
         test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
         test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
 
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
+        model = create_model(best_config, X_train.shape[1], GLOBAL_SEED + i).to(device)
         n_params = count_parameters(model)
         optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"])
         _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device)

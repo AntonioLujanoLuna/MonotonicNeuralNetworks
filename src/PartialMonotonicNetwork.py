@@ -62,7 +62,7 @@ class PartialMonotonicNetwork(nn.Module):
 
         # Convert string activations to nn.Module
         activation = self._get_activation(activation)
-        output_activation = self._get_activation(output_activation)
+        self.output_activation = self._get_activation(output_activation)
 
         # Monotonic features network
         self.mono_network = WeightsConstrainedMLP(
@@ -70,7 +70,6 @@ class PartialMonotonicNetwork(nn.Module):
             hidden_sizes=mono_hidden_sizes,
             output_size=mono_hidden_sizes[-1],
             activation=activation,
-            output_activation=activation,
             dropout_rate=dropout_rate,
             init_method=init_method,
             transform=transform
@@ -82,7 +81,6 @@ class PartialMonotonicNetwork(nn.Module):
             hidden_sizes=non_mono_hidden_sizes,
             output_size=non_mono_hidden_sizes[-1],
             activation=activation,
-            output_activation=activation,
             dropout_rate=dropout_rate,
             init_method=init_method
         )
@@ -93,13 +91,12 @@ class PartialMonotonicNetwork(nn.Module):
             hidden_sizes=combined_hidden_sizes,
             output_size=output_size,
             activation=activation,
-            output_activation=output_activation,
+            output_activation=self.output_activation,
             dropout_rate=dropout_rate,
             init_method=init_method,
             transform=transform
         )
 
-        self.s = nn.Parameter(torch.tensor(1.0))
         self.mono_loss_history = []
         self.nn_loss_history = []
 
