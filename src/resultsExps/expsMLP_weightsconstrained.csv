@@ -1,12 +1,12 @@
 Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std,NumofParameters
-load_abalone,regression,RMSE,0.1152,0.0040,433,"{""lr"": 0.027234039069668894, ""hidden_sizes"": [16, 16], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_auto_mpg,regression,RMSE,1.2876,0.1556,385,"{""lr"": 0.0776593187106001, ""hidden_sizes"": [8, 32], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_blog_feedback,regression,RMSE,0.1549,0.0000,5073,"{""lr"": 0.002872655488940588, ""hidden_sizes"": [16, 32], ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_boston_housing,regression,RMSE,0.3842,0.0926,193,"{""lr"": 0.09722119404816161, ""hidden_sizes"": [8, 8], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_compas,classification,Error Rate,0.4136,0.0422,225,"{""lr"": 0.01230613844308392, ""hidden_sizes"": [8, 16], ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_era,regression,RMSE,0.3196,0.0069,369,"{""lr"": 0.08305023666279503, ""hidden_sizes"": [16, 16], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_esl,regression,RMSE,0.1790,0.0094,121,"{""lr"": 0.08401151688532452, ""hidden_sizes"": [8, 8], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_heart,classification,Error Rate,0.7261,0.0268,3009,"{""lr"": 0.005237557770245317, ""hidden_sizes"": [64, 32], ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_lev,regression,RMSE,0.2380,0.0133,121,"{""lr"": 0.0546056837751587, ""hidden_sizes"": [8, 8], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_swd,regression,RMSE,0.2744,0.0107,169,"{""lr"": 0.08826805743172532, ""hidden_sizes"": [8, 8], ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
-load_loan,classification,Error Rate,0.5000,0.0022,881,"{""lr"": 0.05450606692300859, ""hidden_sizes"": [8, 64], ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_abalone,regression,RMSE,0.1151,0.0040,433,"{""lr"": 0.0017098254113812733, ""hidden_sizes"": [16, 16], ""clip_value"": 1.01220486263605, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_auto_mpg,regression,RMSE,0.2073,0.0088,273,"{""lr"": 0.09942475147559375, ""hidden_sizes"": [16, 8], ""clip_value"": 0.29764055063761213, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_blog_feedback,regression,RMSE,0.1549,0.0000,18513,"{""lr"": 0.023449276366899044, ""hidden_sizes"": [64, 8], ""clip_value"": 6.2869169597930235, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_boston_housing,regression,RMSE,0.2043,0.0161,801,"{""lr"": 0.02410804311871407, ""hidden_sizes"": [16, 32], ""clip_value"": 0.1298636049350332, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_compas,classification,Error Rate,0.3709,0.0372,273,"{""lr"": 0.02511889662512427, ""hidden_sizes"": [16, 8], ""clip_value"": 0.1217829154580841, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_era,regression,RMSE,0.2478,0.0059,433,"{""lr"": 0.09129998451330772, ""hidden_sizes"": [32, 8], ""clip_value"": 0.10027809883243179, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_esl,regression,RMSE,0.1566,0.0435,121,"{""lr"": 0.08346124258685472, ""hidden_sizes"": [8, 8], ""clip_value"": 0.6725186256637022, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_heart,classification,Error Rate,0.1817,0.0801,193,"{""lr"": 0.09214224130579673, ""hidden_sizes"": [8, 8], ""clip_value"": 0.19060146046096735, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_lev,regression,RMSE,0.2396,0.0047,121,"{""lr"": 0.010339555866965904, ""hidden_sizes"": [8, 8], ""clip_value"": 2.4780586721600457, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_swd,regression,RMSE,0.3316,0.0077,249,"{""lr"": 0.009809290542206417, ""hidden_sizes"": [8, 16], ""clip_value"": 0.5291421263160772, ""batch_size"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_loan,classification,Error Rate,0.4134,0.0728,321,"{""lr"": 0.0010175191445623343, ""hidden_sizes"": [8, 8], ""clip_value"": 0.14044724192353097, ""batch_size"": 128, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000

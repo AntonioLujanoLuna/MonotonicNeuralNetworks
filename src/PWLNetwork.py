@@ -5,7 +5,7 @@ from typing import List, Literal
 
 from schedulefree import AdamWScheduleFree
 
-from MLP import StandardMLP
+from src.MLP import StandardMLP
 from torch.utils.data import DataLoader
 
 class PWLNetwork(nn.Module):
@@ -110,48 +110,66 @@ def train_reg_term(model: nn.Module, x: torch.Tensor, monotonic_indices: List[in
     return pwl
 
 
-def pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-                     task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                     b: float = 0.2) -> torch.Tensor:
-    device = x.device
-
-    # Compute empirical loss
-    y_pred = model(x)
-    if task_type == "regression":
-        empirical_loss = nn.MSELoss()(y_pred, y)
-    else:
-        empirical_loss = nn.BCELoss()(y_pred, y)
-
-    # Prepare for regularization
-    model.train()
-    optimizer.train()
-
-    # Separate monotonic and non-monotonic features
-    monotonic_mask = torch.zeros(x.shape[1], dtype=torch.bool)
-    monotonic_mask[monotonic_indices] = True
-    data_monotonic = x[:, monotonic_mask]
-    data_non_monotonic = x[:, ~monotonic_mask]
-
-    data_monotonic.requires_grad_(True)
+def pwl2(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
+        task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
+        noise_level: float = 0.1):
+    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
 
     def closure():
         optimizer.zero_grad()
-        with torch.set_grad_enabled(True):
-            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
-            loss = torch.sum(outputs)
-        loss.backward()
-        return loss
+        y_pred = model(x)
+        empirical_loss = criterion(y_pred, y)
 
-    closure()
-    grad_wrt_monotonic_input = data_monotonic.grad
+        # Monotonicity constraint
+        monotonicity_loss = torch.tensor(0.0, device=x.device)
+        if monotonic_indices:
+            x_m = x[:, monotonic_indices]
+            x_m.requires_grad_(True)
+            # Add small noise to prevent exact zero gradients
+            x_m_noisy = x_m + torch.randn_like(x_m) * noise_level
+            y_pred_m = model(
+                torch.cat([x_m_noisy, x[:, [i for i in range(x.shape[1]) if i not in monotonic_indices]]], dim=1))
+            grad_m = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True)[0]
+            monotonicity_loss = torch.sum(torch.relu(-grad_m))
 
-    if grad_wrt_monotonic_input is None:
-        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
-        return empirical_loss
+        total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
+        total_loss.backward()
+        return total_loss
 
-    # Compute regularization (combines both approaches)
-    grad_penalty = torch.relu(-grad_wrt_monotonic_input + b) # ** 2
-    regularization = torch.max(torch.sum(grad_penalty, dim=1))
+    loss = optimizer.step(closure)
+    return loss
 
-    return empirical_loss + monotonicity_weight * regularization
 
+def pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
+        task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0, offset: float = 0.):
+    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
+
+    def closure():
+        optimizer.zero_grad()
+        y_pred = model(x)
+        empirical_loss = criterion(y_pred, y)  # This is L_NN
+
+        monotonicity_loss = torch.tensor(0.0, device=x.device)
+        if monotonic_indices:
+            x_m = x[:, monotonic_indices]
+            x_m.requires_grad_(True)
+            # Create a new input tensor with gradients only for monotonic features
+            x_grad = x.clone()
+            x_grad[:, monotonic_indices] = x_m
+            y_pred_m = model(x_grad)
+            # Calculate gradients for each example with respect to monotonic features
+            grads = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True)[0]
+            # Calculate divergence (sum of gradients across monotonic features)
+            divergence = grads.sum(dim=1)
+            # Apply max(0, -divergence + offset) for each example
+            monotonicity_term = torch.relu(-divergence + offset)
+            # Sum over all examples
+            monotonicity_loss = monotonicity_term.sum()
+
+        # Combine losses as per the equation
+        total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
+        total_loss.backward()
+        return total_loss
+
+    loss = optimizer.step(closure)
+    return loss

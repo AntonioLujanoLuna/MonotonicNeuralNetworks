@@ -77,7 +77,6 @@ def train_model(model: nn.Module, optimizer, train_loader: DataLoader, val_loade
         model.eval()
         optimizer.eval()
         val_loss = evaluate_model(model, optimizer, val_loader, task_type, device)
-        print(f"EPOCH {epoch} - ERROR RATE: {val_loss}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -107,7 +106,8 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
     if task_type == "regression":
         return np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        binary_preds = (torch.sigmoid(torch.tensor(predictions)) > 0.5).numpy()
+        predictions_array = np.array(predictions)
+        binary_preds = (torch.sigmoid(torch.tensor(predictions_array)) > 0.5).numpy()
         return 1 - accuracy_score(np.squeeze(true_values), binary_preds)
 
 def objective(trial: optuna.Trial, dataset: TensorDataset, train_dataset: torch.utils.data.Subset,
@@ -218,7 +218,8 @@ def evaluate_with_monotonicity(model: nn.Module, optimizer, train_loader: DataLo
     if task_type == "regression":
         metric = np.sqrt(mean_squared_error(true_values, predictions))
     else:
-        binary_preds = (torch.sigmoid(torch.tensor(predictions)) > 0.5).numpy()
+        predictions_array = np.array(predictions)
+        binary_preds = (torch.sigmoid(torch.tensor(predictions_array)) > 0.5).numpy()
         metric = 1 - accuracy_score(np.squeeze(true_values), binary_preds)
 
     n_points = min(1000, len(val_loader.dataset))

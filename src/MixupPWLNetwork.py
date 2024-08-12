@@ -3,7 +3,7 @@ import torch.nn as nn
 from typing import List, Literal
 import random
 from itertools import combinations
-from MLP import StandardMLP
+from src.MLP import StandardMLP
 from torch.utils.data import DataLoader
 
 class MixupRegularizerNetwork(nn.Module):
@@ -104,53 +104,57 @@ import random
 from itertools import combinations
 from schedulefree import AdamWScheduleFree
 
+
 def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-                       task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                       regularization_budget: int = 1000) -> torch.Tensor:
-    # Compute empirical loss
-    y_pred = model(x)
-    if task_type == "regression":
-        empirical_loss = nn.MSELoss()(y_pred, y)
-    else:
-        empirical_loss = nn.BCELoss()(y_pred, y)
-
-    # Prepare for regularization
-    model.train()
-    optimizer.train()
-
-    random_data = torch.rand_like(x)
-    combined_data = torch.cat([x, random_data], dim=0)
-    pairs = get_pairs(combined_data, max_n_pairs=regularization_budget)
-    regularization_points = interpolate_pairs(pairs)
-
-    # Separate monotonic and non-monotonic features
-    monotonic_mask = torch.zeros(regularization_points.shape[1], dtype=torch.bool)
-    monotonic_mask[monotonic_indices] = True
-    data_monotonic = regularization_points[:, monotonic_mask]
-    data_non_monotonic = regularization_points[:, ~monotonic_mask]
-
-    data_monotonic.requires_grad_(True)
+              task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
+              regularization_budget: int = 1024, interpolation_range: float = 0.5, use_random: bool = False):
+    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
 
     def closure():
         optimizer.zero_grad()
-        with torch.set_grad_enabled(True):
-            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
-            loss = torch.sum(outputs)
-        loss.backward()
-        return loss
+        y_pred = model(x)
+        empirical_loss = criterion(y_pred, y)
 
-    closure()
-    grad_wrt_monotonic_input = data_monotonic.grad
+        monotonicity_loss = torch.tensor(0.0, device=x.device)
+        if monotonic_indices:
+            # Generate mixup regularization points
+            if use_random:
+                random_data = torch.rand_like(x)
+                combined_data = torch.cat([x, random_data], dim=0)
+            else:
+                combined_data = x
+            pairs = get_pairs(combined_data, max_n_pairs=regularization_budget)
+            reg_points = interpolate_pairs(pairs, interpolation_range)
 
-    if grad_wrt_monotonic_input is None:
-        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
-        return empirical_loss
+            # Separate monotonic and non-monotonic features
+            monotonic_mask = torch.zeros(reg_points.shape[1], dtype=torch.bool)
+            monotonic_mask[monotonic_indices] = True
+            reg_points_monotonic = reg_points[:, monotonic_mask]
 
-    # Compute regularization
-    grad_penalty = torch.relu(-grad_wrt_monotonic_input) ** 2
-    regularization = torch.max(torch.sum(grad_penalty, dim=1))
+            reg_points_monotonic.requires_grad_(True)
 
-    return empirical_loss + monotonicity_weight * regularization
+            # Create input tensor with gradients only for monotonic features
+            reg_points_grad = reg_points.clone()
+            reg_points_grad[:, monotonic_mask] = reg_points_monotonic
+
+            y_pred_reg = model(reg_points_grad)
+            max_logit = y_pred_reg.max(dim=1)[0]
+            grads = torch.autograd.grad(max_logit.sum(), reg_points_monotonic, create_graph=True)[0]
+
+            # Apply max(0, -divergence)^2 for each regularization point
+            negative_grads = -grads
+            negative_grads[negative_grads < 0] = 0  # Set positive gradients to zero
+            monotonicity_loss = torch.max(negative_grads ** 2)
+
+        # Combine losses
+        total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
+        total_loss.backward()
+        return total_loss
+
+    loss = optimizer.step(closure)
+    return loss
+
+
 
 def get_pairs(data, max_n_pairs):
     all_pairs = list(combinations(range(len(data)), 2))
@@ -162,6 +166,7 @@ def get_pairs(data, max_n_pairs):
     pairs_right = torch.index_select(data, 0, all_pairs[:, 1])
 
     return pairs_left, pairs_right
+
 
 def interpolate_pairs(pairs, interpolation_range=0.5):
     pairs_left, pairs_right = pairs
