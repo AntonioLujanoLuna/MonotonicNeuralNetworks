@@ -1,26 +1,25 @@
-# expsMLP
+# expsMixupPWL
 
-import ast
 import csv
-import multiprocessing
-
 import numpy as np
+import multiprocessing as mp
+from functools import partial
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader, random_split
+from torch.utils.data import TensorDataset, DataLoader
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score
-from typing import Callable, Tuple, List, Dict, Union
-import optuna
+from typing import Callable, Tuple, List, Dict
 from schedulefree import AdamWScheduleFree
+
+from src.CertifiedMonotonicNetworks import uniform_pwl
 from src.MLP import StandardMLP
 from src.MixupPWLNetwork import mixup_pwl
 from dataPreprocessing.loaders import (load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
                                        load_compas, load_era, load_esl, load_heart, load_lev, load_loan, load_swd)
 import random
-from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters, \
-    generate_layer_combinations
-
+from src.utils import monotonicity_check, get_reordered_monotonic_indices, write_results_to_csv, count_parameters
+mp.set_start_method('spawn', force=True)
 GLOBAL_SEED = 42
 
 def set_global_seed(seed):
@@ -39,6 +38,20 @@ def get_task_type(data_loader: Callable) -> str:
                         load_era, load_esl, load_lev, load_swd]
     return "regression" if data_loader in regression_tasks else "classification"
 
+BEST_CONFIGS = {
+    "load_abalone": {"lr": 0.04428367403666013, "hidden_sizes": [8, 64], "batch_size": 64, "epochs": 100},
+    "load_auto_mpg": {"lr": 0.09811656676228442, "hidden_sizes": [32, 64], "batch_size": 16, "epochs": 100},
+    "load_blog_feedback": {"lr": 0.020918413149522606, "hidden_sizes": [16, 16], "batch_size": 16, "epochs": 100},
+    "load_boston_housing": {"lr": 0.0013983973589903281, "hidden_sizes": [64, 64], "batch_size": 16, "epochs": 100},
+    "load_compas": {"lr": 0.006741349738796535, "hidden_sizes": [8, 64], "batch_size": 128, "epochs": 100},
+    "load_era": {"lr": 0.0914834247268068, "hidden_sizes": [16, 32], "batch_size": 32, "epochs": 100},
+    "load_esl": {"lr": 0.05661003724844464, "hidden_sizes": [32, 64], "batch_size": 64, "epochs": 100},
+    "load_heart": {"lr": 0.09185139694044091, "hidden_sizes": [32, 16], "batch_size": 128, "epochs": 100},
+    "load_lev": {"lr": 0.022946670310782055, "hidden_sizes": [32, 64], "batch_size": 16, "epochs": 100},
+    "load_swd": {"lr": 0.07005056625746753, "hidden_sizes": [32, 64], "batch_size": 128, "epochs": 100},
+    "load_loan": {"lr": 0.04249576921544568, "hidden_sizes": [16, 64], "batch_size": 32, "epochs": 100}
+}
+
 
 def create_model(config: Dict, input_size: int, task_type: str, seed: int) -> StandardMLP:
     torch.manual_seed(seed)
@@ -52,28 +65,26 @@ def create_model(config: Dict, input_size: int, task_type: str, seed: int) -> St
     )
 
 
-def train_model(model: StandardMLP, optimizer: AdamWScheduleFree, train_loader: DataLoader, val_loader: DataLoader,
-                config: Dict, task_type: str, device: torch.device, monotonic_indices: List[int]) -> float:
+def train_model(model: nn.Module, optimizer: AdamWScheduleFree, train_loader: torch.utils.data.DataLoader,
+                val_loader: torch.utils.data.DataLoader, config: Dict, task_type: str,
+                device: torch.device, monotonic_indices: List[int]) -> float:
     best_val_loss = float('inf')
-    patience = 15
+    patience = 25 # Increase patience due to not optimization of architecture
     patience_counter = 0
     best_model_state = None
-
-    for epoch in range(config["epochs"]):
+    max_epochs = config["epochs"]
+    for epoch in range(max_epochs):
         model.train()
         optimizer.train()
         for batch_X, batch_y in train_loader:
             batch_X, batch_y = batch_X.to(device), batch_y.to(device)
-
-            optimizer.zero_grad()
-            loss = mixup_pwl(model, optimizer, batch_X, batch_y, task_type, monotonic_indices,
-                             config["monotonicity_weight"], config["regularization_budget"])
-            loss.backward()
-            optimizer.step()
+            _ = mixup_pwl(model, optimizer, batch_X, batch_y, task_type, monotonic_indices,
+                       config["monotonicity_weight"])
 
         model.eval()
         optimizer.eval()
         val_loss = evaluate_model(model, optimizer, val_loader, task_type, device)
+        # print(f"Epoch {epoch+1}/{config['epochs']}, Validation Loss: {val_loss:.4f}")
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -83,13 +94,13 @@ def train_model(model: StandardMLP, optimizer: AdamWScheduleFree, train_loader: 
             patience_counter += 1
 
         if patience_counter >= patience:
+            # print(f"Early stopping at epoch {epoch+1}")
             break
 
     model.load_state_dict(best_model_state)
     return best_val_loss
 
 
-# Keep the original evaluate_model function
 @torch.no_grad()
 def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: DataLoader,
                    task_type: str, device: torch.device) -> float:
@@ -106,111 +117,6 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
         return np.sqrt(mean_squared_error(true_values, predictions))
     else:
         return 1 - accuracy_score(np.squeeze(true_values), np.round(np.squeeze(predictions)))
-
-
-# Modified optimize_hyperparameters function
-def optimize_hyperparameters(X: np.ndarray, y: np.ndarray, task_type: str, monotonic_indices: List[int],
-                             n_trials: int = 30,
-                             sample_size: int = 50000) -> Dict[str, Union[float, List[int], int]]:
-    if len(X) > sample_size:
-        np.random.seed(GLOBAL_SEED)
-        indices = np.random.choice(len(X), sample_size, replace=False)
-        X_sampled, y_sampled = X[indices], y[indices]
-    else:
-        X_sampled, y_sampled = X, y
-
-    dataset = TensorDataset(torch.FloatTensor(X_sampled), torch.FloatTensor(y_sampled).reshape(-1, 1))
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size],
-                                              generator=torch.Generator().manual_seed(GLOBAL_SEED))
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    def objective(trial):
-        hidden_sizes = generate_layer_combinations(min_layers=2, max_layers=2, units=[8, 16, 32, 64])
-        config = {
-            "lr": trial.suggest_float("lr", 1e-3, 1e-1, log=True),
-            "hidden_sizes": ast.literal_eval(trial.suggest_categorical("hidden_sizes", hidden_sizes)),
-            "batch_size": trial.suggest_categorical("batch_size", [16, 32, 64, 128]),
-            "epochs": 100,
-            "monotonicity_weight": 1.0,
-            "regularization_type": "mixup",
-            "regularization_budget": 1024,
-        }
-
-        g = torch.Generator()
-        g.manual_seed(GLOBAL_SEED)
-
-        train_loader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True, generator=g)
-        val_loader = DataLoader(val_dataset, batch_size=config["batch_size"], generator=g)
-
-        model = create_model(config, X.shape[1], task_type, GLOBAL_SEED).to(device)
-        optimizer = AdamWScheduleFree(model.parameters(), lr=config["lr"], warmup_steps=5)
-
-        # Train the model using custom loss
-        _ = train_model(model, optimizer, train_loader, val_loader, config, task_type, device, monotonic_indices)
-
-        # Evaluate using MSE/BCE
-        val_loss = evaluate_model(model, optimizer, val_loader, task_type, device)
-
-        return val_loss
-
-    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
-
-    try:
-        #n_jobs = max(1, multiprocessing.cpu_count() // 2)
-        n_jobs = -1
-        study.optimize(objective, n_trials=n_trials, show_progress_bar=True, n_jobs=n_jobs)
-        best_params = study.best_params
-        best_params["epochs"] = 100
-    except ValueError as e:
-        print(f"Optimization failed: {e}")
-        best_params = {
-            "lr": 0.001,
-            "hidden_sizes": [32, 32],
-            "batch_size": 32,
-            "epochs": 100,
-            "monotonicity_weight": 1.0,
-            "regularization_budget": 1024,
-        }
-
-    return best_params
-
-
-# Modified cross_validate function
-def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: str, monotonic_indices: List[int],
-                   n_splits: int = 5) -> Tuple[List[float], Dict, int]:
-    kf = KFold(n_splits=n_splits, shuffle=True, random_state=GLOBAL_SEED)
-    scores = []
-    mono_metrics = {'random': [], 'train': [], 'val': []}
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    for fold, (train_idx, val_idx) in enumerate(kf.split(X)):
-        X_train, X_val = X[train_idx], X[val_idx]
-        y_train, y_val = y[train_idx], y[val_idx]
-
-        g = torch.Generator()
-        g.manual_seed(GLOBAL_SEED + fold)
-
-        train_dataset = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train).reshape(-1, 1))
-        train_loader = DataLoader(train_dataset, batch_size=best_config["batch_size"], shuffle=True, generator=g)
-        val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
-        val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
-
-        model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold).to(device)
-        n_params = count_parameters(model)
-        optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
-        _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device, monotonic_indices)
-
-        val_metric = evaluate_model(model, optimizer, val_loader, task_type, device)
-        scores.append(val_metric)
-
-        fold_mono_metrics = evaluate_monotonicity(model, optimizer, train_loader, val_loader, device, monotonic_indices)
-        for key in mono_metrics:
-            mono_metrics[key].append(fold_mono_metrics[key])
-
-    return scores, mono_metrics, n_params
 
 
 # Add this new function to evaluate monotonicity
@@ -246,73 +152,143 @@ def evaluate_monotonicity(model: StandardMLP, optimizer: AdamWScheduleFree, trai
     }
 
 
+def process_fold(fold, X, y, best_config, task_type, monotonic_indices, GLOBAL_SEED):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    kf = KFold(n_splits=5, shuffle=True, random_state=GLOBAL_SEED)
+    train_idx, val_idx = list(kf.split(X))[fold]
+    X_train, X_val = X[train_idx], X[val_idx]
+    y_train, y_val = y[train_idx], y[val_idx]
+
+    g = torch.Generator()
+    g.manual_seed(GLOBAL_SEED + fold)
+
+    train_dataset = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train).reshape(-1, 1))
+    train_loader = DataLoader(train_dataset, batch_size=best_config["batch_size"], shuffle=True, generator=g)
+    val_dataset = TensorDataset(torch.FloatTensor(X_val), torch.FloatTensor(y_val).reshape(-1, 1))
+    val_loader = DataLoader(val_dataset, batch_size=best_config["batch_size"], generator=g)
+
+    model = create_model(best_config, X.shape[1], task_type, GLOBAL_SEED + fold).to(device)
+    n_params = count_parameters(model)
+    optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
+    _ = train_model(model, optimizer, train_loader, val_loader, best_config, task_type, device, monotonic_indices)
+
+    val_metric = evaluate_model(model, optimizer, val_loader, task_type, device)
+    fold_mono_metrics = evaluate_monotonicity(model, optimizer, train_loader, val_loader, device, monotonic_indices)
+
+    return val_metric, fold_mono_metrics, n_params
+
+
+def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: str, monotonic_indices: List[int],
+                   n_splits: int = 5) -> Tuple[List[float], Dict, int]:
+    with mp.Pool(processes=min(mp.cpu_count(), 5)) as pool:
+        results = pool.map(partial(process_fold, X=X, y=y, best_config=best_config, task_type=task_type,
+                                   monotonic_indices=monotonic_indices, GLOBAL_SEED=GLOBAL_SEED),
+                           range(n_splits))
+
+    scores, mono_metrics_list, n_params_list = zip(*results)
+
+    mono_metrics = {key: [] for key in mono_metrics_list[0].keys()}
+    for fold_metrics in mono_metrics_list:
+        for key in mono_metrics:
+            mono_metrics[key].append(fold_metrics[key])
+
+    return list(scores), mono_metrics, n_params_list[0]
+
+
+def process_repeat(i, X_train, y_train, X_test, y_test, best_config, task_type, monotonic_indices, GLOBAL_SEED):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    np.random.seed(GLOBAL_SEED + i)
+    indices = np.random.permutation(len(X_train))
+    X_train_shuffled, y_train_shuffled = X_train[indices], y_train[indices]
+
+    g = torch.Generator()
+    g.manual_seed(GLOBAL_SEED + i)
+
+    train_dataset = TensorDataset(torch.FloatTensor(X_train_shuffled),
+                                  torch.FloatTensor(y_train_shuffled).reshape(-1, 1))
+    train_loader = DataLoader(train_dataset, batch_size=best_config["batch_size"], shuffle=True, generator=g)
+    test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
+    test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
+
+    model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
+    n_params = count_parameters(model)
+    optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
+    _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device, monotonic_indices)
+
+    test_metric = evaluate_model(model, optimizer, test_loader, task_type, device)
+    fold_mono_metrics = evaluate_monotonicity(model, optimizer, train_loader, test_loader, device, monotonic_indices)
+
+    return test_metric, fold_mono_metrics, n_params
+
+
 def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray,
                         best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 5) -> Tuple[
     List[float], Dict, int]:
-    scores = []
-    mono_metrics = {'random': [], 'train': [], 'val': []}
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    with mp.Pool(processes=min(mp.cpu_count(), 8)) as pool:
+        results = pool.map(partial(process_repeat, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,
+                                   best_config=best_config, task_type=task_type, monotonic_indices=monotonic_indices,
+                                   GLOBAL_SEED=GLOBAL_SEED),
+                           range(n_repeats))
 
-    for i in range(n_repeats):
-        np.random.seed(GLOBAL_SEED + i)
-        indices = np.random.permutation(len(X_train))
-        X_train, y_train = X_train[indices], y_train[indices]
+    scores, mono_metrics_list, n_params_list = zip(*results)
 
-        g = torch.Generator()
-        g.manual_seed(GLOBAL_SEED + i)
-
-        train_dataset = TensorDataset(torch.FloatTensor(X_train), torch.FloatTensor(y_train).reshape(-1, 1))
-        train_loader = DataLoader(train_dataset, batch_size=best_config["batch_size"], shuffle=True, generator=g)
-        test_dataset = TensorDataset(torch.FloatTensor(X_test), torch.FloatTensor(y_test).reshape(-1, 1))
-        test_loader = DataLoader(test_dataset, batch_size=best_config["batch_size"], generator=g)
-
-        model = create_model(best_config, X_train.shape[1], task_type, GLOBAL_SEED + i).to(device)
-        n_params = count_parameters(model)
-        optimizer = AdamWScheduleFree(model.parameters(), lr=best_config["lr"], warmup_steps=5)
-        _ = train_model(model, optimizer, train_loader, test_loader, best_config, task_type, device, monotonic_indices)
-
-        test_metric = evaluate_model(model, optimizer, test_loader, task_type, device)
-        scores.append(test_metric)
-
-        fold_mono_metrics = evaluate_monotonicity(model, optimizer, train_loader, test_loader, device, monotonic_indices)
+    mono_metrics = {key: [] for key in mono_metrics_list[0].keys()}
+    for repeat_metrics in mono_metrics_list:
         for key in mono_metrics:
-            mono_metrics[key].append(fold_mono_metrics[key])
+            mono_metrics[key].append(repeat_metrics[key])
 
-    return scores, mono_metrics, n_params
+    return list(scores), mono_metrics, n_params_list[0]
 
-
-def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[List[float], Dict, Dict, int]:
+def process_dataset(data_loader: Callable, results_file: str) -> None:
     print(f"\nProcessing dataset: {data_loader.__name__}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 50
-    best_config = optimize_hyperparameters(X, y, task_type, sample_size=sample_size, n_trials=n_trials, monotonic_indices=monotonic_indices)
+    best_config = BEST_CONFIGS[data_loader.__name__]
+    mono_weights = [0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
+    for weight in mono_weights:
+        print(f"\nMonotonicity weight: {weight}")
+        current_config = best_config.copy()
+        current_config["monotonicity_weight"] = weight
 
-    if data_loader == load_blog_feedback:
-        scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, best_config, task_type, monotonic_indices)
-    else:
-        X = np.vstack((X, X_test))
-        y = np.concatenate((y, y_test))
-        scores, mono_metrics, n_params = cross_validate(X, y, best_config, task_type, monotonic_indices)
+        if data_loader == load_blog_feedback:
+            scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, current_config, task_type,
+                                                                 monotonic_indices)
+        else:
+            X_combined = np.vstack((X, X_test))
+            y_combined = np.concatenate((y, y_test))
+            scores, mono_metrics, n_params = cross_validate(X_combined, y_combined, current_config, task_type,
+                                                            monotonic_indices)
 
-    avg_mono_metrics = {
-        key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
-    }
+        avg_mono_metrics = {
+            key: (np.mean(values), np.std(values)) for key, values in mono_metrics.items()
+        }
 
-    return scores, best_config, avg_mono_metrics, n_params
+        metric_name = "RMSE" if task_type == "regression" else "Error Rate"
+
+        # Write results to CSV file
+        write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
+                             np.mean(scores), np.std(scores), current_config, avg_mono_metrics, n_params)
+
+        # Print results to console (optional)
+        print(f"\nResults for {data_loader.__name__} with monotonicity weight {weight}:")
+        print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
+        print(f"Configuration: {current_config}")
+        print(f"Number of parameters: {n_params}")
+        print("Monotonicity violation rates:")
+        for key, (mean, std) in avg_mono_metrics.items():
+            print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
 
 
 def main():
     set_global_seed(GLOBAL_SEED)
 
     dataset_loaders = [
-        load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
-        load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
+        load_heart, load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
+        load_compas, load_era, load_esl, load_lev, load_swd, load_loan
     ]
 
-    sample_size = 40000
-    results_file = "expsmixupPWL.csv"
+    results_file = "expsMixup_PWL.csv"
 
     # Create the CSV file and write the header
     with open(results_file, 'w', newline='') as f:
@@ -326,23 +302,7 @@ def main():
         ])
 
     for data_loader in dataset_loaders:
-        task_type = get_task_type(data_loader)
-        scores, best_config, mono_metrics, n_params = process_dataset(data_loader, sample_size)
-        metric_name = "RMSE" if task_type == "regression" else "Error Rate"
-
-        # Write results to CSV file
-        write_results_to_csv(results_file, data_loader.__name__, task_type, metric_name,
-                             np.mean(scores), np.std(scores), best_config, mono_metrics, n_params)
-
-
-        # Print results to console (optional, you can remove this if you only want file output)
-        print(f"\nResults for {data_loader.__name__}:")
-        print(f"{metric_name}: {np.mean(scores):.4f} (±{np.std(scores):.4f})")
-        print(f"Best configuration: {best_config}")
-        print(f"Number of parameters: {n_params}")
-        print("Monotonicity violation rates:")
-        for key, (mean, std) in mono_metrics.items():
-            print(f"  {key.capitalize()} data: {mean:.4f} (±{std:.4f})")
+        process_dataset(data_loader, results_file)
 
 if __name__ == '__main__':
     main()

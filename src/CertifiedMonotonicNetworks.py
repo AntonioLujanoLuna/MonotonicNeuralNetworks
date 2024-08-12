@@ -41,52 +41,42 @@ class CertifiedMonotonicNetwork(nn.Module):
         return self.model(x)
 
 def uniform_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-                       task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                       regularization_budget: int = 1000, b:float = 0.2) -> torch.Tensor:
-    device = x.device
-
-    # Compute empirical loss
-    y_pred = model(x)
-    if task_type == "regression":
-        empirical_loss = nn.MSELoss()(y_pred, y)
-    else:
-        empirical_loss = nn.BCELoss()(y_pred, y)
-
-    # Prepare for regularization
-    model.train()
-    optimizer.train()
-
-    # Generate regularization points
-    regularization_points = torch.rand(regularization_budget, x.shape[1], device=device)
-
-    # Separate monotonic and non-monotonic features
-    monotonic_mask = torch.zeros(regularization_points.shape[1], dtype=torch.bool)
-    monotonic_mask[monotonic_indices] = True
-    data_monotonic = regularization_points[:, monotonic_mask]
-    data_non_monotonic = regularization_points[:, ~monotonic_mask]
-
-    data_monotonic.requires_grad_(True)
-
+                task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
+                regularization_budget: int = 1024, b: float = 0.2):
+    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
     def closure():
         optimizer.zero_grad()
-        with torch.set_grad_enabled(True):
-            outputs = model(torch.cat([data_monotonic, data_non_monotonic], dim=1))
-            loss = torch.sum(outputs)
-        loss.backward()
-        return loss
+        y_pred = model(x)
+        empirical_loss = criterion(y_pred, y)
 
-    closure()
-    grad_wrt_monotonic_input = data_monotonic.grad
+        monotonicity_loss = torch.tensor(0.0, device=x.device)
+        if monotonic_indices:
+            # Generate regularization points
+            reg_points = torch.rand(regularization_budget, x.shape[1], device=x.device)
+            reg_points_monotonic = reg_points[:, monotonic_indices]
+            reg_points_monotonic.requires_grad_(True)
 
-    if grad_wrt_monotonic_input is None:
-        print("Warning: Gradient is None. Check if the model is correctly set up for gradient computation.")
-        return empirical_loss
+            # Create input tensor with gradients only for monotonic features
+            reg_points_grad = reg_points.clone()
+            reg_points_grad[:, monotonic_indices] = reg_points_monotonic
 
-    # Compute regularization
-    grad_penalty = torch.relu(-grad_wrt_monotonic_input + b) ** 2
-    regularization = torch.max(torch.sum(grad_penalty, dim=1))
+            y_pred_reg = model(reg_points_grad)
+            # Calculate gradients for each regularization point with respect to monotonic features
+            grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True)[0]
+            # Calculate divergence (sum of gradients across monotonic features)
+            divergence = grads.sum(dim=1)
+            # Apply max(b, -divergence)^2 for each regularization point
+            monotonicity_term = torch.relu(-divergence + b) ** 2
+            # Take the maximum violation across all regularization points
+            monotonicity_loss = monotonicity_term.max()
 
-    return empirical_loss + monotonicity_weight * regularization
+        # Combine losses as per the equation
+        total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
+        total_loss.backward()
+        return total_loss
+
+    loss = optimizer.step(closure)
+    return loss
 
 
 def certify_grad_with_gurobi(first_layer, second_layer, mono_feature_num, direction=None):
