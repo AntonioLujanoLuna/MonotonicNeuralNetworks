@@ -311,7 +311,7 @@ def process_dataset(data_loader: Callable, sample_size: int = 50000) -> Tuple[Li
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
-    n_trials = 1
+    n_trials = 30
     best_config = optimize_hyperparameters(X, y, task_type, monotonic_indices, sample_size=sample_size, n_trials=n_trials)
 
     if data_loader == load_blog_feedback:
@@ -335,7 +335,7 @@ def main():
         load_compas, load_era, load_esl, load_heart, load_swd, load_loan
     ]
 
-    sample_size = 40000
+    sample_size = 30000
     results_file = "expsHLL.csv"
 
     # Create the CSV file and write the header

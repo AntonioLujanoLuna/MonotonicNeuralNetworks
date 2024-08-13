@@ -376,7 +376,7 @@ def main():
     ]
 
     model_types = ["minmax", "minmax_aux", "smooth_minmax", "smooth_minmax_aux"]
-    model_types = ["minmax_aux", "smooth_minmax", "smooth_minmax_aux"]
+    model_types = ["smooth_minmax", "smooth_minmax_aux"]
     sample_size = 40000
 
     for model_type in model_types:

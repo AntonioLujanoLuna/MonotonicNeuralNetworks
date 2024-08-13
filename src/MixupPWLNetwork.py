@@ -104,6 +104,24 @@ import random
 from itertools import combinations
 from schedulefree import AdamWScheduleFree
 
+def get_pairs(data, max_n_pairs):
+    all_pairs = list(combinations(range(len(data)), 2))
+    if len(all_pairs) > max_n_pairs:
+        all_pairs = random.sample(all_pairs, max_n_pairs)
+    all_pairs = torch.LongTensor(all_pairs).to(data.device)
+
+    pairs_left = torch.index_select(data, 0, all_pairs[:, 0])
+    pairs_right = torch.index_select(data, 0, all_pairs[:, 1])
+
+    return pairs_left, pairs_right
+
+
+def interpolate_pairs(pairs, interpolation_range=0.5):
+    pairs_left, pairs_right = pairs
+    lower_bound = 0.5 - interpolation_range
+    upper_bound = 0.5 + interpolation_range
+    interpolation_factors = torch.rand(len(pairs_left), 1, device=pairs_left.device) * (upper_bound - lower_bound) + lower_bound
+    return interpolation_factors * pairs_left + (1 - interpolation_factors) * pairs_right
 
 def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
               task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
@@ -136,15 +154,15 @@ def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y
             # Create input tensor with gradients only for monotonic features
             reg_points_grad = reg_points.clone()
             reg_points_grad[:, monotonic_mask] = reg_points_monotonic
-
+            # Calculate gradients for each example with respect to monotonic features
             y_pred_reg = model(reg_points_grad)
-            max_logit = y_pred_reg.max(dim=1)[0]
-            grads = torch.autograd.grad(max_logit.sum(), reg_points_monotonic, create_graph=True)[0]
-
-            # Apply max(0, -divergence)^2 for each regularization point
-            negative_grads = -grads
-            negative_grads[negative_grads < 0] = 0  # Set positive gradients to zero
-            monotonicity_loss = torch.max(negative_grads ** 2)
+            grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True)[0]
+            # Sum the gradients across the relevant dimensions
+            divergence = grads.sum(dim=1)  # Assuming summing over the appropriate dimension
+            # Apply max(0, -divergence)^2
+            monotonicity_term = torch.relu(-divergence) ** 2
+            # Take the maximum violation across all regularization points
+            monotonicity_loss = monotonicity_term.max()
 
         # Combine losses
         total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
@@ -153,24 +171,3 @@ def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y
 
     loss = optimizer.step(closure)
     return loss
-
-
-
-def get_pairs(data, max_n_pairs):
-    all_pairs = list(combinations(range(len(data)), 2))
-    if len(all_pairs) > max_n_pairs:
-        all_pairs = random.sample(all_pairs, max_n_pairs)
-    all_pairs = torch.LongTensor(all_pairs).to(data.device)
-
-    pairs_left = torch.index_select(data, 0, all_pairs[:, 0])
-    pairs_right = torch.index_select(data, 0, all_pairs[:, 1])
-
-    return pairs_left, pairs_right
-
-
-def interpolate_pairs(pairs, interpolation_range=0.5):
-    pairs_left, pairs_right = pairs
-    lower_bound = 0.5 - interpolation_range
-    upper_bound = 0.5 + interpolation_range
-    interpolation_factors = torch.rand(len(pairs_left), 1, device=pairs_left.device) * (upper_bound - lower_bound) + lower_bound
-    return interpolation_factors * pairs_left + (1 - interpolation_factors) * pairs_right

@@ -88,58 +88,6 @@ class PWLNetwork(nn.Module):
         return empirical_loss + self.monotonicity_weight * monotonic_loss
 
 
-def PWL_loss(output: torch.Tensor, target: torch.Tensor, model: StandardMLP, inputs: torch.Tensor, task_type: str,
-                monotonic_indices: List[int], monotonicity_weight: float) -> torch.Tensor:
-    if task_type == "regression":
-        empirical_loss = nn.MSELoss()(output, target)
-    else:
-        empirical_loss = nn.BCELoss()(output, target)
-
-    monotonic_loss = train_reg_term(model, inputs, monotonic_indices)
-    return empirical_loss + monotonicity_weight * monotonic_loss
-
-
-def train_reg_term(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int]) -> torch.Tensor:
-    monotonic_inputs = x[:, monotonic_indices]
-    monotonic_inputs.requires_grad_(True)
-    output = model(x)
-    monotonic_gradients = autograd.grad(outputs=output, inputs=monotonic_inputs,
-                                        grad_outputs=torch.ones_like(output),
-                                        create_graph=True, retain_graph=True)[0]
-    pwl = torch.sum(torch.max(torch.zeros_like(monotonic_gradients), -monotonic_gradients))
-    return pwl
-
-
-def pwl2(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-        task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-        noise_level: float = 0.1):
-    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
-
-    def closure():
-        optimizer.zero_grad()
-        y_pred = model(x)
-        empirical_loss = criterion(y_pred, y)
-
-        # Monotonicity constraint
-        monotonicity_loss = torch.tensor(0.0, device=x.device)
-        if monotonic_indices:
-            x_m = x[:, monotonic_indices]
-            x_m.requires_grad_(True)
-            # Add small noise to prevent exact zero gradients
-            x_m_noisy = x_m + torch.randn_like(x_m) * noise_level
-            y_pred_m = model(
-                torch.cat([x_m_noisy, x[:, [i for i in range(x.shape[1]) if i not in monotonic_indices]]], dim=1))
-            grad_m = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True)[0]
-            monotonicity_loss = torch.sum(torch.relu(-grad_m))
-
-        total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
-        total_loss.backward()
-        return total_loss
-
-    loss = optimizer.step(closure)
-    return loss
-
-
 def pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
         task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0, offset: float = 0.):
     criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
