@@ -1,4 +1,4 @@
-Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std,NumofParameters
+Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,NumOfParameters,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std
 load_abalone,regression,RMSE,0.1151,0.0040,433,"{""lr"": 0.0017098254113812733, ""hidden_sizes"": [16, 16], ""clip_value"": 1.01220486263605, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
 load_auto_mpg,regression,RMSE,0.2073,0.0088,273,"{""lr"": 0.09942475147559375, ""hidden_sizes"": [16, 8], ""clip_value"": 0.29764055063761213, ""batch_size"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
 load_blog_feedback,regression,RMSE,0.1549,0.0000,18513,"{""lr"": 0.023449276366899044, ""hidden_sizes"": [64, 8], ""clip_value"": 6.2869169597930235, ""batch_size"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
