@@ -6,7 +6,8 @@ import multiprocessing as mp
 from functools import partial
 import torch
 import torch.nn as nn
-from torch.utils.data import TensorDataset, DataLoader
+from torch.utils.data import TensorDataset, DataLoader, random_split
+import optuna
 from sklearn.model_selection import KFold
 from sklearn.metrics import mean_squared_error, accuracy_score
 from typing import Callable, Tuple, List, Dict
@@ -62,6 +63,47 @@ def create_model(config: Dict, input_size: int, task_type: str, seed: int) -> St
         output_activation=output_activation
     )
 
+
+def objective(trial, X, y, config, task_type, monotonic_indices, device, sample_size):
+    lr = trial.suggest_float("lr", 1e-4, 1e-1, log=True)
+    current_config = config.copy()
+    current_config["lr"] = lr
+
+    if len(X) > sample_size:
+        np.random.seed(GLOBAL_SEED)
+        indices = np.random.choice(len(X), sample_size, replace=False)
+        X_sampled, y_sampled = X[indices], y[indices]
+    else:
+        X_sampled, y_sampled = X, y
+
+    if isinstance(X, np.ndarray):
+        X = torch.FloatTensor(X_sampled)
+        y = torch.FloatTensor(y_sampled).reshape(-1, 1)
+
+    dataset = TensorDataset(X, y)
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    train_dataset, val_dataset = random_split(dataset, [train_size, val_size],
+                                              generator=torch.Generator().manual_seed(GLOBAL_SEED))
+
+    train_loader = DataLoader(train_dataset, batch_size=current_config["batch_size"], shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=current_config["batch_size"])
+
+    model = create_model(current_config, X.shape[1], task_type, GLOBAL_SEED).to(device)
+    optimizer = AdamWScheduleFree(model.parameters(), lr=lr, warmup_steps=5)
+
+    _ = train_model(model, optimizer, train_loader, val_loader, current_config, task_type, device, monotonic_indices)
+
+    val_metric, custom_loss = evaluate_model(model, optimizer, val_loader, task_type, device, monotonic_indices,
+                                   current_config["monotonicity_weight"])
+
+    return val_metric
+
+def optimize_lr(X, y, config, task_type, monotonic_indices, sample_size, n_trials=30):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    study = optuna.create_study(direction="minimize", sampler=optuna.samplers.TPESampler(seed=GLOBAL_SEED))
+    study.optimize(lambda trial: objective(trial, X, y, config, task_type, monotonic_indices, device, sample_size), n_trials=n_trials, n_jobs=n_trials)
+    return study.best_params["lr"]
 
 def train_model(model: nn.Module, optimizer: AdamWScheduleFree, train_loader: torch.utils.data.DataLoader,
                 val_loader: torch.utils.data.DataLoader, config: Dict, task_type: str,
@@ -186,7 +228,7 @@ def evaluate_monotonicity(model: StandardMLP, optimizer: AdamWScheduleFree, trai
 
 def process_fold(fold, X, y, best_config, task_type, monotonic_indices, GLOBAL_SEED):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    kf = KFold(n_splits=5, shuffle=True, random_state=GLOBAL_SEED)
+    kf = KFold(n_splits=3, shuffle=True, random_state=GLOBAL_SEED)
     train_idx, val_idx = list(kf.split(X))[fold]
     X_train, X_val = X[train_idx], X[val_idx]
     y_train, y_val = y[train_idx], y[val_idx]
@@ -212,7 +254,7 @@ def process_fold(fold, X, y, best_config, task_type, monotonic_indices, GLOBAL_S
 
 
 def cross_validate(X: np.ndarray, y: np.ndarray, best_config: Dict, task_type: str, monotonic_indices: List[int],
-                   n_splits: int = 5) -> Tuple[List[float], Dict, int]:
+                   n_splits: int = 3) -> Tuple[List[float], Dict, int]:
     with mp.Pool(processes=min(mp.cpu_count(), 3)) as pool:
         results = pool.map(partial(process_fold, X=X, y=y, best_config=best_config, task_type=task_type,
                                    monotonic_indices=monotonic_indices, GLOBAL_SEED=GLOBAL_SEED),
@@ -256,7 +298,7 @@ def process_repeat(i, X_train, y_train, X_test, y_test, best_config, task_type, 
 
 
 def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.ndarray, y_test: np.ndarray,
-                        best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 5) -> Tuple[
+                        best_config: Dict, task_type: str, monotonic_indices: List[int], n_repeats: int = 3) -> Tuple[
     List[float], Dict, int]:
     with mp.Pool(processes=min(mp.cpu_count(), 3)) as pool:
         results = pool.map(partial(process_repeat, X_train=X_train, y_train=y_train, X_test=X_test, y_test=y_test,
@@ -273,17 +315,31 @@ def repeated_train_test(X_train: np.ndarray, y_train: np.ndarray, X_test: np.nda
 
     return list(scores), mono_metrics, n_params_list[0]
 
+
 def process_dataset(data_loader: Callable, results_file: str) -> None:
+    n_trials = 10
+    sample_size = 40000
     print(f"\nProcessing dataset: {data_loader.__name__}")
     X, y, X_test, y_test = data_loader()
     task_type = get_task_type(data_loader)
     monotonic_indices = get_reordered_monotonic_indices(data_loader.__name__)
     best_config = BEST_CONFIGS[data_loader.__name__]
-    mono_weights = [0.1, 0.5, 1., 5., 10.]
+    mono_weights = [1., 10., 100., 1000., 10000.]
+
     for weight in mono_weights:
         print(f"\nMonotonicity weight: {weight}")
         current_config = best_config.copy()
         current_config["monotonicity_weight"] = weight
+
+        # Optimize learning rate
+        if data_loader == load_blog_feedback:
+            optimized_lr = optimize_lr(X, y, current_config, task_type, monotonic_indices, sample_size, n_trials)
+        else:
+            X_combined = np.vstack((X, X_test))
+            y_combined = np.concatenate((y, y_test))
+            optimized_lr = optimize_lr(X_combined, y_combined, current_config, task_type, monotonic_indices, sample_size, n_trials)
+
+        current_config["lr"] = optimized_lr
 
         if data_loader == load_blog_feedback:
             scores, mono_metrics, n_params = repeated_train_test(X, y, X_test, y_test, current_config, task_type,
@@ -318,12 +374,8 @@ def main():
     set_global_seed(GLOBAL_SEED)
 
     dataset_loaders = [
-        load_abalone, load_auto_mpg, load_blog_feedback, load_boston_housing,
+        load_auto_mpg, load_abalone, load_blog_feedback, load_boston_housing,
         load_compas, load_era, load_esl, load_heart, load_lev, load_swd, load_loan
-    ]
-
-    dataset_loaders = [
-        load_loan
     ]
 
     results_file = "expsPWL.csv"

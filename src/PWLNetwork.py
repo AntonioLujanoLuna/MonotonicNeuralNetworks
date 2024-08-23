@@ -106,7 +106,7 @@ def pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torc
             x_grad[:, monotonic_indices] = x_m
             y_pred_m = model(x_grad)
             # Calculate gradients for each example with respect to monotonic features
-            grads = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True)[0]
+            grads = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True, allow_unused=True)[0]
             # Calculate divergence (sum of gradients across monotonic features)
             divergence = grads.sum(dim=1)
             # Apply max(0, -divergence + offset) for each example
@@ -121,3 +121,19 @@ def pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torc
 
     loss = optimizer.step(closure)
     return loss
+
+
+def pwl_mono_reg(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int], offset: float = 0.):
+    x_m = x[:, monotonic_indices]
+    x_m.requires_grad_(True)
+
+    x_grad = x.clone()
+    x_grad[:, monotonic_indices] = x_m
+    y_pred_m = model(x_grad)
+
+    grads = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True, allow_unused=True)[0]
+    divergence = grads.sum(dim=1)
+    monotonicity_term = torch.relu(-divergence + offset)
+    monotonicity_loss = monotonicity_term.sum()
+
+    return monotonicity_loss

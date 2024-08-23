@@ -156,7 +156,7 @@ def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y
             reg_points_grad[:, monotonic_mask] = reg_points_monotonic
             # Calculate gradients for each example with respect to monotonic features
             y_pred_reg = model(reg_points_grad)
-            grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True)[0]
+            grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True, allow_unused=True)[0]
             # Sum the gradients across the relevant dimensions
             divergence = grads.sum(dim=1)  # Assuming summing over the appropriate dimension
             # Apply max(0, -divergence)^2

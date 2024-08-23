@@ -135,7 +135,7 @@ def evaluate_model(model: nn.Module, optimizer: AdamWScheduleFree, data_loader: 
             with torch.enable_grad():
                 y_pred_reg = model(reg_points_grad)
                 # Calculate gradients for each regularization point with respect to monotonic features
-                grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True)[0]
+                grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True, allow_unused=True)[0]
                 # Calculate divergence (sum of gradients across monotonic features)
                 divergence = grads.sum(dim=1)
                 # Apply max(b, -divergence)^2 for each regularization point

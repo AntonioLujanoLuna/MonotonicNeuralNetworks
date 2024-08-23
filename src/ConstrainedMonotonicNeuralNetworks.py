@@ -1,4 +1,3 @@
-from time import sleep
 
 import torch
 import torch.nn as nn
@@ -308,7 +307,7 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                     self._get_activation_layer(self.activation)
                 ))
 
-        main_input_size = self.hidden_sizes[0] * len(self.monotonicity_indicator)
+        main_input_size = self.hidden_sizes[0] * self.input_size
 
         main_network = nn.ModuleList()
 
@@ -357,29 +356,35 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                             param.zero_()
 
     def forward(self, x: torch.Tensor):
-        if self.architecture_type == 'type1':
-            # Process the input through all layers sequentially
-            for layer in self.network:
-                x = layer(x)
-        elif self.architecture_type == 'type2':
+        if self.architecture_type == 'type2':
+            # Identify monotonic and non-monotonic inputs
             monotonic_mask = (self.monotonicity_indicator != 0)
             monotonic_inputs = x[:, monotonic_mask]
             non_monotonic_inputs = x[:, ~monotonic_mask]
+            # Process monotonic inputs
             if monotonic_inputs.size(1) > 0:
-                mono_outputs = torch.cat([
-                    layer(monotonic_inputs[:, i:i + 1])
+                # Stack the inputs along a new dimension to process in parallel
+                mono_inputs_expanded = monotonic_inputs.unsqueeze(2)  # Shape: (batch_size, num_features, 1)
+                mono_outputs = torch.stack([
+                    layer(mono_inputs_expanded[:, i, :])
                     for i, layer in enumerate(self.network['mono_layers'])
-                ], dim=1)
+                ], dim=2)  # Shape: (batch_size, hidden_size, num_features)
+                mono_outputs = mono_outputs.view(x.size(0), -1)  # Flatten to (batch_size, hidden_size * num_features)
             else:
                 mono_outputs = torch.tensor([], device=x.device)
+            # Process non-monotonic inputs similarly
             if non_monotonic_inputs.size(1) > 0:
-                non_mono_outputs = torch.cat([
-                    layer(non_monotonic_inputs[:, i:i + 1])
+                non_mono_inputs_expanded = non_monotonic_inputs.unsqueeze(2)
+                non_mono_outputs = torch.stack([
+                    layer(non_mono_inputs_expanded[:, i, :])
                     for i, layer in enumerate(self.network['non_mono_layers'])
-                ], dim=1)
+                ], dim=2)
+                non_mono_outputs = non_mono_outputs.view(x.size(0), -1)
             else:
                 non_mono_outputs = torch.tensor([], device=x.device)
+            # Concatenate the outputs of both monotonic and non-monotonic layers
             x = torch.cat((mono_outputs, non_mono_outputs), dim=1)
+            # Process through the main network layers
             for layer in self.network['main_network']:
                 x = layer(x)
 

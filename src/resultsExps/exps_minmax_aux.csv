@@ -1,4 +1,4 @@
-Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,NumofParameters,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std
+Dataset,Task Type,Metric Name,Metric Value,Metric Std Dev,NumOfParameters,Best Configuration,Mono Random Mean,Mono Random Std,Mono Train Mean,Mono Train Std,Mono Val Mean,Mono Val Std
 load_abalone,regression,RMSE,0.0826,0.0031,2113,"{""lr"": 0.023080197799585575, ""K"": 6, ""h_K"": 32, ""batch_size"": 32, ""aux_hidden_units"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
 load_auto_mpg,regression,RMSE,0.0944,0.0064,1057,"{""lr"": 0.08195517188584872, ""K"": 4, ""h_K"": 32, ""batch_size"": 64, ""aux_hidden_units"": 16, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
 load_blog_feedback,regression,RMSE,0.1462,0.0044,20169,"{""lr"": 0.009466611670538017, ""K"": 2, ""h_K"": 32, ""batch_size"": 128, ""aux_hidden_units"": 8, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
@@ -9,3 +9,4 @@ load_esl,regression,RMSE,0.0672,0.0066,153,"{""lr"": 0.0934998499354196, ""K"": 
 load_heart,classification,Error Rate,0.1651,0.0504,2657,"{""lr"": 0.04723165447936182, ""K"": 5, ""h_K"": 32, ""batch_size"": 64, ""aux_hidden_units"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
 load_lev,regression,RMSE,0.1565,0.0129,329,"{""lr"": 0.009593715378582368, ""K"": 5, ""h_K"": 8, ""batch_size"": 128, ""aux_hidden_units"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
 load_swd,regression,RMSE,0.2104,0.0067,4545,"{""lr"": 0.02925137460343437, ""K"": 6, ""h_K"": 64, ""batch_size"": 32, ""aux_hidden_units"": 64, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
+load_loan,classification,Error Rate,0.3483,0.0011,12353,"{""lr"": 0.004157994579857554, ""K"": 6, ""h_K"": 64, ""batch_size"": 32, ""aux_hidden_units"": 32, ""epochs"": 100}",0.0000,0.0000,0.0000,0.0000,0.0000,0.0000
