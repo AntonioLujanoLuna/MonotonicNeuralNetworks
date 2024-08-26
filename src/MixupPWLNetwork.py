@@ -171,3 +171,32 @@ def mixup_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y
 
     loss = optimizer.step(closure)
     return loss
+
+
+def mixupPWL_mono_reg(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int], interpolation_range: float = 0.5,
+                      use_random: bool = False):
+    if use_random:
+        random_data = torch.rand_like(x)
+        combined_data = torch.cat([x, random_data], dim=0)
+    else:
+        combined_data = x
+
+    pairs = get_pairs(combined_data, max_n_pairs=x.shape[0])
+    reg_points = interpolate_pairs(pairs, interpolation_range)
+
+    monotonic_mask = torch.zeros(reg_points.shape[1], dtype=torch.bool)
+    monotonic_mask[monotonic_indices] = True
+    reg_points_monotonic = reg_points[:, monotonic_mask]
+    reg_points_monotonic.requires_grad_(True)
+
+    reg_points_grad = reg_points.clone()
+    reg_points_grad[:, monotonic_mask] = reg_points_monotonic
+
+    y_pred_m = model(reg_points_grad)
+
+    grads = torch.autograd.grad(y_pred_m.sum(), reg_points_monotonic, create_graph=True, allow_unused=True)[0]
+    divergence = grads.sum(dim=1)
+    monotonicity_term = torch.relu(-divergence) ** 2
+    monotonicity_loss = monotonicity_term.max()
+
+    return monotonicity_loss

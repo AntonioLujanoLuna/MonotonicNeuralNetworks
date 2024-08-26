@@ -78,6 +78,20 @@ def uniform_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor,
     loss = optimizer.step(closure)
     return loss
 
+def uniformPWL_mono_reg(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int], b: float = 0.2):
+    x_m = x[:, monotonic_indices]
+    x_m.requires_grad_(True)
+
+    x_grad = x.clone()
+    x_grad[:, monotonic_indices] = x_m
+    y_pred_m = model(x_grad)
+
+    grads = torch.autograd.grad(y_pred_m.sum(), x_m, create_graph=True, allow_unused=True)[0]
+    divergence = grads.sum(dim=1)
+    monotonicity_term = torch.relu(-divergence + b) ** 2
+    monotonicity_loss = monotonicity_term.max()
+    return monotonicity_loss
+
 
 def certify_grad_with_gurobi(first_layer, second_layer, mono_feature_num, direction=None):
     mono_flag = True

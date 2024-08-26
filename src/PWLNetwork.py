@@ -135,5 +135,4 @@ def pwl_mono_reg(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int]
     divergence = grads.sum(dim=1)
     monotonicity_term = torch.relu(-divergence + offset)
     monotonicity_loss = monotonicity_term.sum()
-
     return monotonicity_loss

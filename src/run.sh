@@ -9,8 +9,9 @@ export PYTHONPATH="${PYTHONPATH}:$(pwd)/.."
 # Script to run exps
 
 python_files=(
-"exp/5_expsCoMNN.py"
-"exp/3_expsMinMax.py"
+#"exp/9_expsPWL.py"
+"exp/10_expsCMNN.py"
+"exp/11_expsPWLMixup.py"
 )
 
 for file in "${python_files[@]}"; do

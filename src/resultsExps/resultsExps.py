@@ -3,6 +3,8 @@ import os
 import numpy as np
 from scikit_posthocs import posthoc_nemenyi_friedman
 from scipy.stats import wilcoxon, friedmanchisquare
+import matplotlib.pyplot as plt
+from scikit_posthocs import critical_difference_diagram
 
 
 def read_csv_files(file_list, directory):
@@ -133,12 +135,50 @@ def create_latex_table(df, caption, label):
     latex_table = df.to_latex(float_format="%.4f", caption=caption, label=label, escape=False)
     return latex_table
 
+def create_critical_difference_diagram(performance_df, filename='critical_difference_diagram.png'):
+    # Compute average ranks
+    ranks = performance_df.rank(axis=1, ascending=False)
+    avg_ranks = ranks.mean().sort_values()
+
+    # Prepare data for the diagram
+    ranks_dict = avg_ranks.to_dict()
+
+    # Perform Nemenyi test to get the p-value matrix
+    nemenyi_results = posthoc_nemenyi_friedman(performance_df)
+
+    # Create the diagram
+    fig, ax = plt.subplots(figsize=(10, 5))
+
+    critical_difference_diagram(
+        ranks=ranks_dict,
+        sig_matrix=nemenyi_results,
+        ax=ax,
+        label_fmt_left='{label} ({rank:.2f})',
+        label_fmt_right='({rank:.2f}) {label}',
+    )
+
+    plt.title("Critical Difference Diagram")
+    plt.tight_layout()
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Critical Difference Diagram saved as {filename}")
+
+
 def main():
     csv_directory = '/home/antoniolujano/MonotonicNeuralNetworks/src/resultsExps'
     csv_files = [
         'expsMLP.csv', 'expsMLP_weightsconstrained.csv', 'exps_minmax.csv',
         'exps_minmax_aux.csv', 'exps_smooth_minmax.csv', 'exps_smooth_minmax_aux.csv',
         'expsCoMNN_type1.csv', 'expsLMNN_lip1.csv', 'expsSMNN.csv'
+    ]
+
+    csv_files = [
+        'expsMLP.csv', 'expsMLP_weightsconstrained.csv', 'exps_minmax.csv',
+        'exps_smooth_minmax.csv', 'expsCoMNN_type1.csv', 'expsLMNN_lip1.csv', 'expsSMNN.csv'
+    ]
+
+    csv_files = [
+        'exps_minmax.csv','exps_minmax_aux.csv', 'exps_smooth_minmax.csv', 'exps_smooth_minmax_aux.csv'
     ]
 
     data_dict = read_csv_files(csv_files, csv_directory)
@@ -190,6 +230,9 @@ def main():
         nemenyi_results = perform_nemenyi_test(performance_df)
         print("Nemenyi test results:")
         print(nemenyi_results)
+
+        #print("\nCreating Critical Difference Diagram...")
+        #create_critical_difference_diagram(performance_df)
 
         # Create LaTeX tables
         wilcoxon_latex = create_latex_table(wilcoxon_results, "Wilcoxon Test Results", "tab:wilcoxon")

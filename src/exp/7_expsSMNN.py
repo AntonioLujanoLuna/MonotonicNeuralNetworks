@@ -335,7 +335,7 @@ def main():
     with open(results_file, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
-            "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev", "NumofParameters",
+            "Dataset", "Task Type", "Metric Name", "Metric Value", "Metric Std Dev", "NumOfParameters",
             "Best Configuration",
             "Mono Random Mean", "Mono Random Std",
             "Mono Train Mean", "Mono Train Std",
