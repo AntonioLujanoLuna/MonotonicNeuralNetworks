@@ -3,80 +3,8 @@ import torch.nn as nn
 import numpy as np
 import gurobipy as gp
 from gurobipy import GRB
-from typing import List, Literal
-import random
-from itertools import combinations
-from schedulefree import AdamWScheduleFree
-from src.MLP import StandardMLP
+from typing import List
 
-
-class CertifiedMonotonicNetwork(nn.Module):
-    def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int, monotonic_indices: List[int],
-                 monotonicity_weight: float = 1.0, activation: nn.Module = nn.ReLU(),
-                 output_activation: nn.Module = nn.Identity(), dropout_rate: float = 0.0, b: float = 0.2,
-                 init_method: Literal[
-                     'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'truncated_normal'] = 'xavier_uniform'):
-        super().__init__()
-        self.monotonicity_weight = monotonicity_weight
-        self.b = b
-        self.n_monotonic_features = len(monotonic_indices)
-        self.n_non_monotonic_features = input_size - self.n_monotonic_features
-
-        # Create a mask for monotonic and non-monotonic features
-        self.monotonic_mask = torch.zeros(input_size, dtype=torch.bool)
-        self.monotonic_mask[monotonic_indices] = True
-
-        # Main network
-        self.model = StandardMLP(
-            input_size=input_size,
-            hidden_sizes=hidden_sizes,
-            output_size=output_size,
-            activation=activation,
-            output_activation=output_activation,
-            dropout_rate=dropout_rate,
-            init_method=init_method
-        )
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.model(x)
-
-def uniform_pwl(model: nn.Module, optimizer: AdamWScheduleFree, x: torch.Tensor, y: torch.Tensor,
-                task_type: str, monotonic_indices: List[int], monotonicity_weight: float = 1.0,
-                regularization_budget: int = 1024, b: float = 0.2):
-    criterion = nn.MSELoss() if task_type == "regression" else nn.BCELoss()
-    def closure():
-        optimizer.zero_grad()
-        y_pred = model(x)
-        empirical_loss = criterion(y_pred, y)
-
-        monotonicity_loss = torch.tensor(0.0, device=x.device)
-        if monotonic_indices:
-            # Generate regularization points
-            reg_points = torch.rand(regularization_budget, x.shape[1], device=x.device)
-            reg_points_monotonic = reg_points[:, monotonic_indices]
-            reg_points_monotonic.requires_grad_(True)
-
-            # Create input tensor with gradients only for monotonic features
-            reg_points_grad = reg_points.clone()
-            reg_points_grad[:, monotonic_indices] = reg_points_monotonic
-
-            y_pred_reg = model(reg_points_grad)
-            # Calculate gradients for each regularization point with respect to monotonic features
-            grads = torch.autograd.grad(y_pred_reg.sum(), reg_points_monotonic, create_graph=True)[0]
-            # Calculate divergence (sum of gradients across monotonic features)
-            divergence = grads.sum(dim=1)
-            # Apply max(b, -divergence)^2 for each regularization point
-            monotonicity_term = torch.relu(-divergence + b) ** 2
-            # Take the maximum violation across all regularization points
-            monotonicity_loss = monotonicity_term.max()
-
-        # Combine losses as per the equation
-        total_loss = empirical_loss + monotonicity_weight * monotonicity_loss
-        total_loss.backward()
-        return total_loss
-
-    loss = optimizer.step(closure)
-    return loss
 
 def uniformPWL_mono_reg(model: nn.Module, x: torch.Tensor, monotonic_indices: List[int], b: float = 0.2):
     x_m = x[:, monotonic_indices]

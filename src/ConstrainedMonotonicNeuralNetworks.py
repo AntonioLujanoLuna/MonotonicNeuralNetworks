@@ -1,14 +1,16 @@
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Optional, Tuple, Union, Callable, Literal, List
 from contextlib import contextmanager
 from functools import lru_cache
-
 from src.utils import init_weights
 
 class MonoDense(nn.Module):
+    """
+    A monotonic dense layer implementation in PyTorch.
+    This layer allows for specifying monotonicity constraints and various activation functions.
+    """
     def __init__(
             self,
             in_features: int,
@@ -21,6 +23,19 @@ class MonoDense(nn.Module):
             init_method: Literal[
                 'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform'
     ):
+        """
+        Initialize the MonoDense layer.
+
+        Args:
+            in_features (int): Number of input features.
+            units (int): Number of output units.
+            activation (Optional[Union[str, Callable]]): Activation function to use.
+            monotonicity_indicator (Union[int, list]): Indicates the monotonicity constraint for each input feature.
+            is_convex (bool): Whether the layer should be convex.
+            is_concave (bool): Whether the layer should be concave.
+            activation_weights (Tuple[float, float, float]): Weights for convex, concave, and saturated activations.
+            init_method (Literal): Method to use for weight initialization.
+        """
         if is_convex and is_concave:
             raise ValueError("The model cannot be set to be both convex and concave (only linear functions are both).")
         super(MonoDense, self).__init__()
@@ -41,6 +56,15 @@ class MonoDense(nn.Module):
             self.org_activation)
 
     def to(self, device):
+        """
+        Move the layer to the specified device.
+
+        Args:
+            device: The device to move the layer to.
+
+        Returns:
+            MonoDense: The layer moved to the specified device.
+        """
         super().to(device)
         self.weight = self.weight.to(device)
         self.bias = self.bias.to(device)
@@ -49,6 +73,9 @@ class MonoDense(nn.Module):
         return self
 
     def reset_parameters(self):
+        """
+        Reset the parameters (weights and biases) of the layer.
+        """
         with torch.no_grad():
             # Create new tensors for weight and bias
             new_weight = torch.empty(self.weight.shape, device=self.weight.device)
@@ -62,25 +89,19 @@ class MonoDense(nn.Module):
             self.weight = nn.Parameter(new_weight)
             self.bias = nn.Parameter(new_bias)
 
-
-    def get_config(self):
-        return {
-            'in_features': self.in_features,
-            'units': self.units,
-            'init_method': self.init_method,
-            'activation': self.org_activation,
-            'monotonicity_indicator': self.monotonicity_indicator.tolist(),
-            'is_convex': self.is_convex,
-            'is_concave': self.is_concave,
-            'activation_weights': self.activation_weights.tolist(),
-        }
-
-    @classmethod
-    def from_config(cls, config):
-        return cls(**config)
-
     @staticmethod
     def get_monotonicity_indicator(monotonicity_indicator, in_features, units):
+        """
+        Process and validate the monotonicity indicator.
+
+        Args:
+            monotonicity_indicator (Union[int, list, torch.Tensor]): Monotonicity indicator.
+            in_features (int): Number of input features.
+            units (int): Number of output units.
+
+        Returns:
+            torch.Tensor: Processed monotonicity indicator.
+        """
         if isinstance(monotonicity_indicator, torch.Tensor):
             monotonicity_indicator = monotonicity_indicator.clone().detach().to(torch.float32)
         else:
@@ -103,6 +124,15 @@ class MonoDense(nn.Module):
     @staticmethod
     @lru_cache(maxsize=None)
     def get_activation_functions(activation):
+        """
+        Get the convex, concave, and saturated activation functions.
+
+        Args:
+            activation (Union[str, Callable]): Activation function or its name.
+
+        Returns:
+            Tuple[Callable, Callable, Callable]: Convex, concave, and saturated activation functions.
+        """
         if callable(activation):
             return activation, lambda x: -activation(-x), MonoDense.get_saturated_activation(activation,
                                                                                              lambda x: -activation(-x))
@@ -137,6 +167,18 @@ class MonoDense(nn.Module):
             a: float = 1.0,
             c: float = 1.0,
     ) -> Callable[[torch.Tensor], torch.Tensor]:
+        """
+        Get the saturated activation function.
+
+        Args:
+            convex_activation (Callable): Convex activation function.
+            concave_activation (Callable): Concave activation function.
+            a (float): Scaling factor.
+            c (float): Offset.
+
+        Returns:
+            Callable: Saturated activation function.
+        """
         def saturated_activation(
                 x: torch.Tensor,
                 convex_activation: Callable[[torch.Tensor], torch.Tensor] = convex_activation,
@@ -155,6 +197,15 @@ class MonoDense(nn.Module):
         return saturated_activation
 
     def apply_monotonicity_indicator_to_kernel(self, kernel):
+        """
+        Apply the monotonicity indicator to the kernel.
+
+        Args:
+            kernel (torch.Tensor): The kernel to apply the monotonicity indicator to.
+
+        Returns:
+            torch.Tensor: The modified kernel.
+        """
         abs_kernel = torch.abs(kernel)
         kernel = torch.where(self.monotonicity_indicator == 1, abs_kernel, kernel)
         kernel = torch.where(self.monotonicity_indicator == -1, -abs_kernel, kernel)
@@ -162,6 +213,9 @@ class MonoDense(nn.Module):
 
     @contextmanager
     def replace_kernel_using_monotonicity_indicator(self):
+        """
+        Context manager to temporarily replace the kernel using the monotonicity indicator.
+        """
         original_kernel = self.weight.data.clone()
         self.weight.data = self.apply_monotonicity_indicator_to_kernel(self.weight)
         try:
@@ -170,6 +224,15 @@ class MonoDense(nn.Module):
             self.weight.data = original_kernel
 
     def apply_activations(self, h):
+        """
+        Apply the activation functions to the input.
+
+        Args:
+            h (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output after applying activations.
+        """
         if self.org_activation is None:
             return h
 
@@ -203,6 +266,15 @@ class MonoDense(nn.Module):
 
         return y
     def forward(self, x):
+        """
+        Forward pass of the MonoDense layer.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after applying the MonoDense layer.
+        """
         device = x.device
         self.monotonicity_indicator = self.monotonicity_indicator.to(device)
         modified_weight = self.apply_monotonicity_indicator_to_kernel(self.weight)
@@ -215,6 +287,10 @@ class MonoDense(nn.Module):
 
 
 class ConstrainedMonotonicNeuralNetwork(nn.Module):
+    """
+    A neural network with monotonicity constraints on specified input features.
+    Supports two architecture types: 'type1' and 'type2'.
+    """
     def __init__(self,
                  input_size: int,
                  hidden_sizes: List[int],
@@ -226,6 +302,20 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                  init_method: Literal[
                      'xavier_uniform', 'xavier_normal', 'kaiming_uniform', 'kaiming_normal', 'he_uniform', 'he_normal', 'truncated_normal'] = 'xavier_uniform',
                  architecture_type: Literal['type1', 'type2'] = 'type1'):
+        """
+        Initialize the ConstrainedMonotonicNeuralNetwork.
+
+        Args:
+            input_size (int): Number of input features.
+            hidden_sizes (List[int]): List of hidden layer sizes.
+            output_size (int): Number of output units.
+            device (torch.device): Device to run the model on.
+            activation (str): Activation function to use in hidden layers.
+            monotonicity_indicator (List[int]): List indicating monotonicity constraint for each input feature.
+            final_activation (Optional[Callable]): Activation function for the output layer.
+            init_method (Literal): Method to use for weight initialization.
+            architecture_type (Literal): Type of network architecture to use ('type1' or 'type2').
+        """
         super(ConstrainedMonotonicNeuralNetwork, self).__init__()
         self.input_size = input_size
         self.hidden_sizes = hidden_sizes
@@ -249,6 +339,15 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         self.init_weights(init_method)
 
     def to(self, device):
+        """
+        Move the network to the specified device.
+
+        Args:
+            device: The device to move the network to.
+
+        Returns:
+            ConstrainedMonotonicNeuralNetwork: The network moved to the specified device.
+        """
         super().to(device)
         self.monotonicity_indicator = self.monotonicity_indicator.to(device)
         if self.architecture_type == 'type1':
@@ -260,6 +359,12 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         return self
 
     def _build_type1(self):
+        """
+        Build a Type 1 architecture network.
+
+        Returns:
+            nn.ModuleList: A list of MonoDense layers forming the network.
+        """
         layers = nn.ModuleList()
 
         # Input layer
@@ -290,6 +395,12 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         return layers
 
     def _build_type2(self):
+        """
+        Build a Type 2 architecture network.
+
+        Returns:
+            nn.ModuleDict: A dictionary containing mono_layers, non_mono_layers, and main_network.
+        """
         mono_layers = nn.ModuleList()
         non_mono_layers = nn.ModuleList()
 
@@ -333,6 +444,18 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         })
 
     def _get_activation_layer(self, activation):
+        """
+        Get the activation layer based on the specified activation function.
+
+        Args:
+            activation (str): Name of the activation function.
+
+        Returns:
+            nn.Module: The corresponding activation layer.
+
+        Raises:
+            ValueError: If an unsupported activation is specified.
+        """
         if activation == 'elu':
             return nn.ELU()
         elif activation == 'relu':
@@ -341,6 +464,12 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
             raise ValueError(f"Unsupported activation: {activation}")
 
     def init_weights(self, method):
+        """
+        Initialize the weights of the network using the specified method.
+
+        Args:
+            method (str): The initialization method to use.
+        """
         for module in self.modules():
             if isinstance(module, (nn.Linear, MonoDense)):
                 for name, param in module.named_parameters():
@@ -356,6 +485,15 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
                             param.zero_()
 
     def forward(self, x: torch.Tensor):
+        """
+        Forward pass of the network.
+
+        Args:
+            x (torch.Tensor): Input tensor.
+
+        Returns:
+            torch.Tensor: Output tensor after passing through the network.
+        """
         if self.architecture_type == 'type2':
             # Identify monotonic and non-monotonic inputs
             monotonic_mask = (self.monotonicity_indicator != 0)
@@ -393,4 +531,10 @@ class ConstrainedMonotonicNeuralNetwork(nn.Module):
         return x
 
     def count_parameters(self):
+        """
+        Count the number of trainable parameters in the network.
+
+        Returns:
+            int: The total number of trainable parameters.
+        """
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
