@@ -12,6 +12,19 @@ def monotonicity_check(
         monotonic_indices: List[int],
         device: torch.device
 ) -> float:
+    """
+    Check the monotonicity of a neural network model with respect to specified input features.
+
+    Args:
+        model (nn.Module): The neural network model to check.
+        optimizer (torch.optim.Optimizer): The optimizer used for the model.
+        data_x (torch.Tensor): Input data tensor.
+        monotonic_indices (List[int]): Indices of input features that should be monotonic.
+        device (torch.device): The device to perform computations on.
+
+    Returns:
+        float: The fraction of points where monotonicity is violated.
+    """
     model.train()
     optimizer.train()
     data_x = data_x.to(device)
@@ -55,6 +68,15 @@ def monotonicity_check(
 
 
 def get_monotonic_indices(dataset_name: str) -> List[int]:
+    """
+    Get the indices of monotonic features for a given dataset.
+
+    Args:
+        dataset_name (str): Name of the dataset.
+
+    Returns:
+        List[int]: List of indices corresponding to monotonic features in the dataset.
+    """
     # Remove the "load_" prefix if present
     dataset_name = dataset_name.replace("load_", "")
 
@@ -75,6 +97,15 @@ def get_monotonic_indices(dataset_name: str) -> List[int]:
     return monotonic_indices.get(dataset_name, [])
 
 def get_reordered_monotonic_indices(dataset_name: str) -> List[int]:
+    """
+    Get a list of consecutive integers representing the number of monotonic features for a given dataset.
+
+    Args:
+        dataset_name (str): Name of the dataset.
+
+    Returns:
+        List[int]: List of consecutive integers starting from 0, with length equal to the number of monotonic features.
+    """
     # Remove the "load_" prefix if present
     dataset_name = dataset_name.replace("load_", "")
 
@@ -194,6 +225,20 @@ def transform_weights(module_or_tensor: Union[nn.Module, torch.Tensor], method: 
 
 def write_results_to_csv(filename: str, dataset_name: str, task_type: str, metric_name: str,
                          metric_value: float, metric_std: float, best_config: Dict, mono_metrics: Dict, n_params: int):
+    """
+    Write experiment results to a CSV file.
+
+    Args:
+        filename (str): Name of the CSV file to write to.
+        dataset_name (str): Name of the dataset used in the experiment.
+        task_type (str): Type of the task (e.g., 'classification', 'regression').
+        metric_name (str): Name of the performance metric used.
+        metric_value (float): Value of the performance metric.
+        metric_std (float): Standard deviation of the performance metric.
+        best_config (Dict): Best hyperparameter configuration found.
+        mono_metrics (Dict): Dictionary containing monotonicity metrics.
+        n_params (int): Number of parameters in the model.
+    """
     # Convert best_config to a JSON string for easier CSV handling
     best_config_str = json.dumps(best_config)
 

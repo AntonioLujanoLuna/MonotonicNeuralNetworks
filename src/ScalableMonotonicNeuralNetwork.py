@@ -7,7 +7,14 @@ from typing import Tuple, List
 from src.utils import init_weights
 
 class ScalableMonotonicNeuralNetwork(nn.Module):
+    """
+    Implements a Scalable Monotonic Neural Network (SMNN).
+    This network is designed to handle both monotonic and non-monotonic features in the input data.
+    """
     class ActivationLayer(nn.Module):
+        """
+        Abstract base class for all activation layers in the SMNN.
+        """
         def __init__(self, in_features: int, out_features: int):
             super().__init__()
             self.weight = nn.Parameter(torch.empty((in_features, out_features)))
@@ -17,6 +24,9 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             raise NotImplementedError("Abstract method called")
 
     class ExpUnit(ActivationLayer):
+        """
+        Exponential activation unit for monotonic features.
+        """
         def __init__(self, in_features: int, out_features: int):
             super().__init__(in_features, out_features)
             nn.init.uniform_(self.weight, a=-20.0, b=2.0)
@@ -27,6 +37,9 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             return (1 - 0.01) * torch.clip(out, 0, 1) + 0.01 * out
 
     class ReLUUnit(ActivationLayer):
+        """
+        ReLU activation unit for non-monotonic features.
+        """
         def __init__(self, in_features: int, out_features: int):
             super().__init__(in_features, out_features)
             init_weights(self.weight, method='xavier_uniform')
@@ -36,6 +49,9 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             return F.relu(x @ self.weight + self.bias)
 
     class ConfluenceUnit(ActivationLayer):
+        """
+        Confluence unit to combine information from monotonic and non-monotonic paths.
+        """
         def __init__(self, in_features: int, out_features: int):
             super().__init__(in_features, out_features)
             init_weights(self.weight, method='xavier_uniform')
@@ -46,6 +62,9 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
             return (1 - 0.01) * torch.clip(out, 0, 1) + 0.01 * out
 
     class FCLayer(ActivationLayer):
+        """
+        Fully connected layer for the final output.
+        """
         def __init__(self, in_features: int, out_features: int):
             super().__init__(in_features, out_features)
             init_weights(self.weight, method='truncated_normal', mean=-10.0, std=3)
@@ -60,6 +79,16 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
                  exp_unit_size: Tuple = (),
                  relu_unit_size: Tuple = (),
                  conf_unit_size: Tuple = ()):
+        """
+        Initialize the SMNN.
+
+        Args:
+            input_size (int): Total number of input features.
+            mono_feature (List[int]): Indices of monotonic features.
+            exp_unit_size (Tuple): Sizes of exponential unit layers.
+            relu_unit_size (Tuple): Sizes of ReLU unit layers.
+            conf_unit_size (Tuple): Sizes of confluence unit layers.
+        """
         super(ScalableMonotonicNeuralNetwork, self).__init__()
 
         self.input_size = input_size
@@ -71,21 +100,25 @@ class ScalableMonotonicNeuralNetwork(nn.Module):
         self.relu_unit_size = relu_unit_size
         self.conf_unit_size = conf_unit_size
 
+        # Initialize exponential units for monotonic features
         self.exp_units = nn.ModuleList([
             self.ExpUnit(self.mono_size if i == 0 else exp_unit_size[i-1] + conf_unit_size[i-1], exp_unit_size[i])
             for i in range(len(exp_unit_size))
         ])
 
+        # Initialize ReLU units for non-monotonic features
         self.relu_units = nn.ModuleList([
             self.ReLUUnit(self.non_mono_size if i == 0 else relu_unit_size[i - 1], relu_unit_size[i])
             for i in range(len(relu_unit_size))
         ])
 
+        # Initialize confluence units to combine information from monotonic and non-monotonic paths
         self.conf_units = nn.ModuleList([
             self.ConfluenceUnit(self.non_mono_size if i == 0 else relu_unit_size[i - 1], conf_unit_size[i])
             for i in range(len(conf_unit_size))
         ])
 
+        # Initialize the final fully connected layer
         self.fc_layer = self.FCLayer(exp_unit_size[-1] + conf_unit_size[-1] + relu_unit_size[-1], 1)
 
     def forward(self, x):

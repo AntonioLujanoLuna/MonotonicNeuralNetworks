@@ -106,27 +106,3 @@ class HLLNetwork(nn.Module):
             int: The total number of trainable parameters.
         """
         return sum(p.numel() for p in self.parameters() if p.requires_grad)
-
-# Example usage
-"""
-dim = 10
-lattice_sizes = [3, 3, 3, 3]  # Example lattice sizes
-increasing = [0, 1]  # Example increasing dimensions
-mlp_neurons = [64, 32]  # Example MLP architecture
-
-model = HLLNetwork(
-    dim=dim,
-    lattice_sizes=lattice_sizes,
-    increasing=increasing,
-    mlp_neurons=mlp_neurons,
-    activation=nn.ReLU(),
-    dropout_rate=0.1,
-    init_method='xavier_uniform'
-)
-
-# Assuming you have your data as torch tensors
-history = model.fit(x_train, y_train, x_val, y_val, epochs=1000, learning_rate=0.01)
-
-# Make predictions
-predictions = model.predict(x_test)
-"""
